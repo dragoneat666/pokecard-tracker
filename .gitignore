@@ -1,0 +1,13 @@
+# Secrets — never commit these
+.env
+
+# Node dependencies — installed fresh on the server via npm install
+node_modules/
+*/node_modules/
+
+# Build output — generated at runtime
+frontend/dist/
+
+# OS junk
+.DS_Store
+Thumbs.db
