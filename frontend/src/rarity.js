@@ -19,6 +19,23 @@ export function isCollectorRarity(rarity) {
   return !BASIC_RARITIES.has(rarity);
 }
 
+// Rarities that get a reverse holo version
+const REVERSE_HOLO_RARITIES = new Set([
+  'Common',
+  'Uncommon',
+  'Rare',
+  'Rare Holo',
+  'Trainer',
+  'Trainer - Item',
+  'Trainer - Supporter',
+  'Trainer - Stadium',
+]);
+
+export function hasReverseHolo(rarity) {
+  if (!rarity) return false;
+  return REVERSE_HOLO_RARITIES.has(rarity);
+}
+
 // Returns a CSS class suffix and display label for a rarity string.
 // Used by the RarityBadge component.
 export function rarityMeta(rarity) {
