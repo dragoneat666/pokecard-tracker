@@ -71,6 +71,19 @@ export async function searchSets(searchQuery) {
   ).slice(0, 20); // Return max 20 results
 }
 
+// PokéWallet returns dates like "22nd May, 2026" — convert to YYYY-MM-DD for Postgres
+function parsePokeWalletDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const cleaned = dateStr.replace(/(\d+)(st|nd|rd|th)/, '$1');
+    const date = new Date(cleaned);
+    if (isNaN(date.getTime())) return null;
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
 // ─── IMPORT SET CARDS ─────────────────────────────────────────────────────────
 // Called from POST /api/sets when a tcg_id is provided.
 // Fetches the full card list for a set and inserts everything into our DB.
@@ -102,7 +115,7 @@ export async function importSetCards(tcgSetId) {
     setData.name,
     setData.series || null,
     setData.card_count || null,
-    setData.release_date || null,
+    parsePokeWalletDate(setData.release_date),
     setData.logo_url || null,
   ]);
 
