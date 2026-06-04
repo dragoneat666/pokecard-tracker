@@ -132,7 +132,7 @@ export async function importSetCards(tcgSetId) {
 
   while (hasMore) {
     const cardsData = await pokewalletFetch(`/sets/${setCode}?page=${page}&limit=50`);
-    const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.data || cardsData.cards || []);
+    const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.cards || []);
     allCards = allCards.concat(pageCards);
     hasMore = pageCards.length === 50;
     page++;
@@ -145,7 +145,7 @@ export async function importSetCards(tcgSetId) {
   // For 200 cards this is fast enough — Postgres handles it fine.
   let inserted = 0;
   for (const card of cards) {
-    const cardName = card.name || card.card_name || null;
+    const cardName = card.card_info?.name || card.name || null;
     if (!cardName) {
       console.log(`   ⚠️ Skipping card ${card.id} — no name`);
       continue;
@@ -161,10 +161,10 @@ export async function importSetCards(tcgSetId) {
     `, [
       set.id,
       card.id || card.tcg_id || null,
-      card.number || card.card_number || '',
+      card.card_info?.card_number || card.number || card.card_number || '',
       cardName,
-      Array.isArray(card.types) ? card.types[0] : (card.type || null),
-      card.rarity || null,
+      card.card_info?.card_type || null,
+      card.card_info?.rarity || null,
     ]);
     inserted++;
   }
