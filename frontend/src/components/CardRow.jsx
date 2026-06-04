@@ -65,7 +65,7 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
     >
       {/* Card number */}
       <td style={tdStyle}>
-        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.8rem' }}>
+        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 700 }}>
           {card.card_number}
         </span>
       </td>
