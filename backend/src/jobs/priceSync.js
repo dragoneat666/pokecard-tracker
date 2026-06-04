@@ -67,7 +67,7 @@ export async function searchSets(searchQuery) {
   return sets.filter(s =>
     s.name?.toLowerCase().includes(q) ||
     s.series?.toLowerCase().includes(q) ||
-    s.id?.toLowerCase().includes(q)
+    s.set_code?.toLowerCase().includes(q)
   ).slice(0, 20); // Return max 20 results
 }
 
@@ -75,8 +75,14 @@ export async function searchSets(searchQuery) {
 // Called from POST /api/sets when a tcg_id is provided.
 // Fetches the full card list for a set and inserts everything into our DB.
 export async function importSetCards(tcgSetId) {
-  // Step 1: Fetch set metadata
-  const setData = await pokewalletFetch(`/sets/${tcgSetId}`);
+  // Step 1: Find set in PokéWallet's full set list
+  const allSets = await pokewalletFetch(`/sets`);
+  const sets = Array.isArray(allSets) ? allSets : (allSets.data || []);
+  const setData = sets.find(s => s.set_id === tcgSetId);
+
+  if (!setData) {
+    throw new Error(`Set with set_id "${tcgSetId}" not found in PokéWallet`);
+  }
 
   // Step 2: Insert (or update) the set in our DB
   // ON CONFLICT (tcg_id) DO UPDATE means if you try to import the same
@@ -95,9 +101,9 @@ export async function importSetCards(tcgSetId) {
     tcgSetId,
     setData.name,
     setData.series || null,
-    setData.total || setData.totalCards || setData.printed_total || null,
-    setData.releaseDate || setData.release_date || null,
-    setData.images?.logo || setData.logo || null,
+    setData.card_count || null,
+    setData.release_date || null,
+    setData.logo_url || null,
   ]);
 
   const set = setResult.rows[0];
