@@ -145,6 +145,11 @@ export async function importSetCards(tcgSetId) {
   // For 200 cards this is fast enough — Postgres handles it fine.
   let inserted = 0;
   for (const card of cards) {
+    const cardName = card.name || card.card_name || null;
+    if (!cardName) {
+      console.log(`   ⚠️ Skipping card ${card.id} — no name`);
+      continue;
+    }
     await query(`
       INSERT INTO cards (set_id, tcg_card_id, card_number, name, pokemon_type, rarity)
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -157,8 +162,7 @@ export async function importSetCards(tcgSetId) {
       set.id,
       card.id || card.tcg_id || null,
       card.number || card.card_number || '',
-      card.name,
-      // PokéWallet returns types as an array e.g. ["Fire"] — we store as string
+      cardName,
       Array.isArray(card.types) ? card.types[0] : (card.type || null),
       card.rarity || null,
     ]);
