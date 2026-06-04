@@ -51,6 +51,7 @@ export const api = {
     setReverseOwned: (id, owned)    => request('PATCH', `/cards/${id}/reverse-owned`, { owned }),
     setStorage:      (id, storage)  => request('PATCH', `/cards/${id}/storage`,       { storage }),
     setExtra:        (id, hasExtra) => request('PATCH', `/cards/${id}/extra`,         { has_extra: hasExtra }),
+    setCondition:    (id, condition) => request('PATCH', `/cards/${id}/condition`,    { condition }),
     create:          (data)         => request('POST',  '/cards',                     data),
     delete:          (id)           => request('DELETE',`/cards/${id}`),
   },
