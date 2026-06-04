@@ -181,10 +181,10 @@ export async function importSetCards(tcgSetId) {
 }
 
 // ─── REFRESH PRICES FOR SET ───────────────────────────────────────────────────
-// Fetches current prices for all cards in a set and inserts new price rows.
+// Fetches current prices for all cards in a set and inserts new price rows, loops 1 by 1 for the free tier.
 // Called by: the 24hr scheduler, the manual refresh button, and after import.
+
 export async function refreshPricesForSet(setId) {
-  // Get all cards in this set that have a tcg_card_id (needed to query PokéWallet)
   const { rows: cards } = await query(`
     SELECT id, tcg_card_id, name
     FROM cards
@@ -196,44 +196,25 @@ export async function refreshPricesForSet(setId) {
     return;
   }
 
-  // Get the set's tcg_id so we can use PokéWallet's per-set price endpoint
   const { rows: setRows } = await query('SELECT tcg_id, name FROM sets WHERE id = $1', [setId]);
-  if (!setRows[0]?.tcg_id) {
-    console.log(`   Set ${setId} has no tcg_id, skipping price refresh`);
-    return;
-  }
+  const setName = setRows[0]?.name || `set ${setId}`;
+  console.log(`💰 Refreshing prices for: ${setName} (${cards.length} cards)`);
 
-  const { tcg_id, name: setName } = setRows[0];
-  console.log(`💰 Refreshing prices for: ${setName}`);
+  let updated = 0;
+  for (const card of cards) {
+    try {
+      const data = await pokewalletFetch(`/cards/${card.tcg_card_id}`);
 
-  try {
-    // PokéWallet's /prices/:setCode endpoint returns prices for the whole set
-    // in one request — much more efficient than one request per card.
-    const priceData = await pokewalletFetch(`/prices/${tcg_id}`);
-    const prices = Array.isArray(priceData) ? priceData : (priceData.data || priceData.prices || []);
+      const tcgPrices = data.tcgplayer?.prices || [];
 
-    // Build a lookup map: tcg_card_id → price data
-    // This lets us match prices to our cards in O(1) instead of O(n²)
-    const priceMap = new Map();
-    for (const p of prices) {
-      const cardId = p.id || p.card_id || p.tcg_id;
-      if (cardId) priceMap.set(cardId, p);
-    }
+      const normal      = tcgPrices.find(p => p.sub_type_name === 'Normal');
+      const holofoil    = tcgPrices.find(p => p.sub_type_name === 'Holofoil');
+      const reverseHolo = tcgPrices.find(p => p.sub_type_name === 'Reverse Holofoil');
 
-    // Insert price rows for each of our cards
-    let updated = 0;
-    for (const card of cards) {
-      const priceEntry = priceMap.get(card.tcg_card_id);
-      if (!priceEntry) continue;
-
-      // Extract prices — PokéWallet returns TCGPlayer and CardMarket data
-      // We prioritize TCGPlayer (USD) market price
-      const marketPrice      = extractPrice(priceEntry, 'Normal',        'market') ||
-                               extractPrice(priceEntry, 'Holofoil',      'market');
-      const lowPrice         = extractPrice(priceEntry, 'Normal',        'low') ||
-                               extractPrice(priceEntry, 'Holofoil',      'low');
-      const reverseHoloPrice = extractPrice(priceEntry, 'Reverse Holo',  'market');
-      const holofoilPrice    = extractPrice(priceEntry, 'Holofoil',      'market');
+      const marketPrice      = normal?.market_price      || holofoil?.market_price      || null;
+      const lowPrice         = normal?.low_price         || holofoil?.low_price         || null;
+      const reverseHoloPrice = reverseHolo?.market_price || null;
+      const holofoilPrice    = holofoil?.market_price    || null;
 
       await query(`
         INSERT INTO prices (card_id, market_price, low_price, reverse_holo_price, holofoil_price)
@@ -241,36 +222,15 @@ export async function refreshPricesForSet(setId) {
       `, [card.id, marketPrice, lowPrice, reverseHoloPrice, holofoilPrice]);
 
       updated++;
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+    } catch (err) {
+      console.error(`   ⚠️ Price fetch failed for ${card.name}:`, err.message);
     }
-
-    console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
-  } catch (err) {
-    console.error(`   ❌ Price refresh failed for ${setName}:`, err.message);
-    throw err;
-  }
-}
-
-// Helper to dig into PokéWallet's nested price structure.
-// Their API returns prices as an array of variants, each with a sub_type_name.
-// e.g. [{ sub_type_name: "Normal", market: 1.25, low: 0.99 }, ...]
-function extractPrice(priceEntry, subTypeName, priceField) {
-  // Handle flat structure
-  if (priceEntry[priceField] !== undefined && !priceEntry.prices) {
-    return parseFloat(priceEntry[priceField]) || null;
   }
 
-  // Handle nested prices array
-  const variants = priceEntry.prices || priceEntry.tcgplayer?.prices || [];
-  if (Array.isArray(variants)) {
-    const variant = variants.find(v =>
-      v.sub_type_name === subTypeName ||
-      v.name === subTypeName ||
-      v.type === subTypeName
-    );
-    if (variant) return parseFloat(variant[priceField]) || null;
-  }
-
-  return null;
+  console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
 }
 
 // ─── SCHEDULED AUTO-REFRESH ───────────────────────────────────────────────────
