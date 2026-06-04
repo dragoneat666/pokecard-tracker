@@ -11,7 +11,7 @@ import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwnedChange, onStorageChange }) {
+const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
 
@@ -138,6 +138,22 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
           <option value="sleeve">Sleeve</option>
           <option value="toploader">Toploader</option>
           <option value="safe">Safe</option>
+        </select>
+      </td>
+
+      {/* Condition */}
+      <td style={tdStyle}>
+        <select
+          className="input"
+          value={card.condition || 'Near Mint'}
+          onChange={e => onConditionChange(card.id, e.target.value)}
+          style={{ padding: '3px 6px', fontSize: '0.78rem', width: 'auto', minWidth: 70 }}
+        >
+          <option value="Near Mint">NM</option>
+          <option value="Lightly Played">LP</option>
+          <option value="Moderately Played">MP</option>
+          <option value="Heavily Played">HP</option>
+          <option value="Damaged">D</option>
         </select>
       </td>
 
