@@ -214,7 +214,7 @@ export default function SetView() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                {['#', 'Name', 'Type', 'Rarity', 'Own', 'Rev', 'Storage', 'Cond', 'Price', 'Total', 'Rev Price', 'Rev Total'].map(h => (
+                {['#', 'Name', 'Type', 'Rarity', 'Regular', 'Reverse Holo', 'Storage', 'Condition', 'Price', 'Total', 'Rev Price', 'Rev Total'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
