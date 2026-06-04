@@ -145,6 +145,32 @@ router.patch('/:id/storage', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/cards/:id/condition ──────────────────────────────────────────
+// Updates the condition of a card.
+router.patch('/:id/condition', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { condition } = req.body;
+
+    const valid = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
+    if (!valid.includes(condition)) {
+      return res.status(400).json({
+        error: `condition must be one of: ${valid.join(', ')}`
+      });
+    }
+
+    const { rows } = await query(
+      'UPDATE cards SET condition = $1 WHERE id = $2 RETURNING *',
+      [condition, id]
+    );
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── PATCH /api/cards/:id/extra ───────────────────────────────────────────────
 // Toggles the has_extra flag — marks that you're intentionally holding
 // a 2nd copy (tracked separately from owned so set completion counts aren't skewed).
