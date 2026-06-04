@@ -44,6 +44,9 @@ CREATE TABLE cards (
   -- This is separate from owned so we don't mess up owned=1 meaning "complete"
   has_extra     BOOLEAN NOT NULL DEFAULT FALSE,
 
+  condition     TEXT NOT NULL DEFAULT 'Near Mint'
+                CHECK (condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')),
+
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
