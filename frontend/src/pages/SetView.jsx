@@ -93,6 +93,19 @@ export default function SetView() {
     }
   }
 
+  async function handleConditionChange(cardId, condition) {
+    const prev = cards;
+    setCards(c => c.map(card =>
+      card.id === cardId ? { ...card, condition } : card
+    ));
+    try {
+      await api.cards.setCondition(cardId, condition);
+    } catch (err) {
+      setCards(prev);
+      showToast(`Failed to update: ${err.message}`, 'error');
+    }
+  }
+
   // ── Price refresh ─────────────────────────────────────────────────────────
   async function handleRefreshPrices() {
     try {
@@ -201,7 +214,7 @@ export default function SetView() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                {['#', 'Name', 'Type', 'Rarity', 'Own', 'Rev', 'Storage', 'Price', 'Total', 'Rev Price', 'Rev Total'].map(h => (
+                {['#', 'Name', 'Type', 'Rarity', 'Own', 'Rev', 'Storage', 'Cond', 'Price', 'Total', 'Rev Price', 'Rev Total'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
@@ -215,11 +228,12 @@ export default function SetView() {
                   onOwnedChange={handleOwnedChange}
                   onReverseOwnedChange={handleReverseOwnedChange}
                   onStorageChange={handleStorageChange}
+                  onConditionChange={handleConditionChange}
                 />
               ))}
               {filteredCards.length === 0 && (
                 <tr>
-                  <td colSpan={11} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
+                  <td colSpan={12} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
                     No cards match the current filter.
                   </td>
                 </tr>
