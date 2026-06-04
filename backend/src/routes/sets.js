@@ -72,6 +72,7 @@ router.get('/:id', async (req, res, next) => {
         c.pokemon_type,
         c.rarity,
         c.storage,
+        c.condition,
         c.owned,
         c.has_extra,
         -- Reverse holo owned count (0 if no reverse holo row exists)
