@@ -123,10 +123,22 @@ export async function importSetCards(tcgSetId) {
   console.log(`📦 Importing set: ${set.name} (${tcgSetId})`);
 
   // Step 3: Fetch all cards for this set
-  const cardsData = await pokewalletFetch(`/sets/${tcgSetId}/cards`);
-  const cards = Array.isArray(cardsData) ? cardsData : (cardsData.data || cardsData.cards || []);
+  // PokéWallet uses set_code (e.g. "CRI") not set_id for the /sets/:setCode endpoint
+  // and paginates at 50 cards per page
+  const setCode = setData.set_code;
+  let allCards = [];
+  let page = 1;
+  let hasMore = true;
 
-  console.log(`   Found ${cards.length} cards`);
+  while (hasMore) {
+    const cardsData = await pokewalletFetch(`/sets/${setCode}?page=${page}&limit=50`);
+    const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.data || cardsData.cards || []);
+    allCards = allCards.concat(pageCards);
+    hasMore = pageCards.length === 50;
+    page++;
+  }
+
+  const cards = allCards;
 
   // Step 4: Insert each card
   // We do this in a loop rather than one big INSERT for readability.
