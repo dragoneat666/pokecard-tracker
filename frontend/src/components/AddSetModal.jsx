@@ -38,9 +38,9 @@ export default function AddSetModal({ onClose, onAdded }) {
 
   async function handleImport(set) {
     try {
-      setImporting(set.id);
+      setImporting(set.set_id);
       setError(null);
-      await api.sets.create({ tcg_id: set.id });
+      await api.sets.create({ tcg_id: set.set_id });
       onAdded();
     } catch (err) {
       setError(err.message);
@@ -138,7 +138,7 @@ export default function AddSetModal({ onClose, onAdded }) {
               {results.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                   {results.map(set => (
-                    <div key={set.id} style={{
+                    <div key={set.set_id} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: 'var(--space-3) var(--space-4)',
                       background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
@@ -147,16 +147,16 @@ export default function AddSetModal({ onClose, onAdded }) {
                       <div>
                         <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{set.name}</div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                          {set.series} · {set.total || set.printedTotal || '?'} cards
-                          {set.releaseDate ? ` · ${set.releaseDate}` : ''}
+                          {set.set_code} · {set.card_count || '?'} cards
+                          {set.release_date ? ` · ${set.release_date}` : ''}
                         </div>
                       </div>
                       <button
                         className="btn btn-primary btn-sm"
-                        disabled={importing === set.id}
+                        disabled={importing === set.set_id}
                         onClick={() => handleImport(set)}
                       >
-                        {importing === set.id
+                        {importing === set.set_id
                           ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Importing…</>
                           : 'Import'}
                       </button>
