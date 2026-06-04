@@ -7,7 +7,7 @@
 //   - Unchecking box 1 clears both
 
 import { memo } from 'react';
-import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
+import { isCollectorRarity, rarityMeta, formatPrice, hasReverseHolo } from '../rarity.js';
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
@@ -118,12 +118,16 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
 
       {/* Reverse holo checkbox */}
       <td style={tdStyle}>
-        <Checkbox
-          checked={card.reverse_owned >= 1}
-          onClick={handleReverseClick}
-          title="Own reverse holo"
-          color="var(--rarity-holo)"
-        />
+        {hasReverseHolo(card.rarity) ? (
+          <Checkbox
+            checked={card.reverse_owned >= 1}
+            onClick={handleReverseClick}
+            title="Own reverse holo"
+            color="var(--rarity-holo)"
+          />
+        ) : (
+          <span style={{ color: 'var(--text-muted)' }}>—</span>
+        )}
       </td>
 
       {/* Storage dropdown */}
