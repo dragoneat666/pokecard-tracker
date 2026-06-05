@@ -1,77 +1,71 @@
 // jobs/priceSync.js
 //
-// This file does three things:
-//   1. Provides searchSets()         — search PokéWallet for TCG sets by name
-//   2. Provides importSetCards()     — pull a full set's card list into our DB
-//   3. Provides refreshPricesForSet() — fetch fresh prices for a set's cards
-//   4. Provides startPriceSync()     — schedules the 24hr auto-refresh
+// Hybrid import using two APIs:
+//   1. TCGTracking (primary)  — card list, has_reverse_holo, image_url, prices, symbol_url
+//   2. PokéWallet  (secondary) — pokemon_type, stage, tcg_card_id, set metadata
 //
-// PokéWallet API base URL: https://api.pokewallet.io
-// Auth: X-API-Key header
+// Import flow (per set):
+//   Step 1: TCGTracking search  — find set ID and symbol URL
+//   Step 2: TCGTracking cards   — full card list with reverse holo flags and images
+//   Step 3: PokéWallet cards    — paginated card list for type/stage/tcg_card_id
+//   Step 4: PokéWallet sets     — set metadata (release_date, set_code, language, series)
+//   Step 5: Insert set into DB
+//   Step 6: Insert cards merging both sources
+//   Step 7: Kick off price refresh
+//
+// Price refresh flow (per set, 1 API call):
+//   TCGTracking /sets/{id}/pricing — returns all prices keyed by TCGTracking product ID
 
 import cron from 'node-cron';
 import { query } from '../db.js';
 
-const POKEWALLET_BASE = 'https://api.pokewallet.io';
+const POKEWALLET_BASE  = 'https://api.pokewallet.io';
+const TCGTRACKING_BASE = 'https://tcgtracking.com/tcgapi/v1/3';
 const API_KEY = process.env.TCG_API_KEY;
 
-// ─── API HELPER ───────────────────────────────────────────────────────────────
-// A thin wrapper around fetch() that adds auth headers and handles errors.
-// Every PokéWallet call goes through here.
+// ─── POKEWALLET FETCH ─────────────────────────────────────────────────────────
 async function pokewalletFetch(path) {
-  if (!API_KEY) {
-    throw new Error('TCG_API_KEY is not set in environment variables');
-  }
+  if (!API_KEY) throw new Error('TCG_API_KEY is not set');
 
   const url = `${POKEWALLET_BASE}${path}`;
   console.log(`📡 PokéWallet API: GET ${path}`);
 
   const response = await fetch(url, {
-    headers: {
-      'X-API-Key': API_KEY,
-      'Accept': 'application/json',
-    },
+    headers: { 'X-API-Key': API_KEY, 'Accept': 'application/json' },
   });
 
-  // Log rate limit headers so you can monitor usage in Dozzle
   const remaining = response.headers.get('X-RateLimit-Remaining-Day');
   const limit     = response.headers.get('X-RateLimit-Limit-Day');
   if (remaining !== null) {
     console.log(`   Rate limit: ${remaining}/${limit} daily requests remaining`);
   }
 
-  if (response.status === 429) {
-    throw new Error('PokéWallet rate limit exceeded — try again later');
-  }
-
+  if (response.status === 429) throw new Error('PokéWallet rate limit exceeded');
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`PokéWallet API error ${response.status}: ${body}`);
   }
-
   return response.json();
 }
 
-// ─── SEARCH SETS ──────────────────────────────────────────────────────────────
-// Called from POST /api/sets/search-tcg
-// Returns a list of sets matching the search term from PokéWallet.
-export async function searchSets(searchQuery) {
-  // PokéWallet's /sets endpoint returns all sets; we filter client-side
-  // since their API doesn't have a search param for sets yet.
-  const data = await pokewalletFetch('/sets');
+// ─── TCGTRACKING FETCH ────────────────────────────────────────────────────────
+async function tcgtrackingFetch(path) {
+  const url = `${TCGTRACKING_BASE}${path}`;
+  console.log(`🔍 TCGTracking API: GET ${path}`);
 
-  // data is expected to be an array of set objects
-  const sets = Array.isArray(data) ? data : (data.data || data.sets || []);
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+  });
 
-  const q = searchQuery.toLowerCase();
-  return sets.filter(s =>
-    s.name?.toLowerCase().includes(q) ||
-    s.series?.toLowerCase().includes(q) ||
-    s.set_code?.toLowerCase().includes(q)
-  ).slice(0, 20); // Return max 20 results
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`TCGTracking API error ${response.status}: ${body}`);
+  }
+  return response.json();
 }
 
-// PokéWallet returns dates like "22nd May, 2026" — convert to YYYY-MM-DD for Postgres
+// ─── DATE PARSER ─────────────────────────────────────────────────────────────
+// PokéWallet returns dates like "22nd May, 2026" — convert to YYYY-MM-DD
 function parsePokeWalletDate(dateStr) {
   if (!dateStr) return null;
   try {
@@ -84,101 +78,172 @@ function parsePokeWalletDate(dateStr) {
   }
 }
 
-// ─── IMPORT SET CARDS ─────────────────────────────────────────────────────────
-// Called from POST /api/sets when a tcg_id is provided.
-// Fetches the full card list for a set and inserts everything into our DB.
-export async function importSetCards(tcgSetId) {
-  // Step 1: Find set in PokéWallet's full set list
-  const allSets = await pokewalletFetch(`/sets`);
-  const sets = Array.isArray(allSets) ? allSets : (allSets.data || []);
-  const setData = sets.find(s => s.set_id === tcgSetId);
+// ─── SEARCH SETS ──────────────────────────────────────────────────────────────
+// Called from POST /api/sets/search-tcg
+// Uses TCGTracking search which is fast and accurate
+export async function searchSets(searchQuery) {
+  const data = await tcgtrackingFetch(`/search?q=${encodeURIComponent(searchQuery)}`);
+  const sets = data.sets || [];
 
-  if (!setData) {
-    throw new Error(`Set with set_id "${tcgSetId}" not found in PokéWallet`);
+  // Normalize to the shape the frontend expects
+  return sets.map(s => ({
+    set_id:       String(s.id),
+    name:         s.name,
+    set_code:     s.abbreviation,
+    card_count:   s.product_count,
+    release_date: s.published_on,
+    symbol_url:   s.set_symbol_url,
+  }));
+}
+
+// ─── IMPORT SET CARDS ─────────────────────────────────────────────────────────
+export async function importSetCards(tcgSetId) {
+  // ── Step 1: TCGTracking — full card list ───────────────────────────────────
+  console.log(`\n📦 Starting import for set ${tcgSetId}`);
+  console.log('   Step 1: Fetching cards from TCGTracking...');
+
+  const tcgData = await tcgtrackingFetch(`/sets/${tcgSetId}`);
+  const tcgCards = (tcgData.products || []).filter(p => p.number !== null);
+
+  console.log(`   TCGTracking: ${tcgCards.length} cards found`);
+
+  // Build a map of card_number → TCGTracking card data
+  // This lets us look up by card number when merging with PokéWallet data
+  const tcgMap = new Map();
+  for (const card of tcgCards) {
+    tcgMap.set(card.number, card);
   }
 
-  // Step 2: Insert (or update) the set in our DB
-  // ON CONFLICT (tcg_id) DO UPDATE means if you try to import the same
-  // set twice, it updates the metadata instead of erroring.
+  // Also get TCGTracking search result for symbol URL
+  const searchData = await tcgtrackingFetch(`/search?q=${encodeURIComponent(tcgData.set_name)}`);
+  const tcgSet = searchData.sets?.find(s => String(s.id) === String(tcgSetId));
+  const symbolUrl = tcgSet?.set_symbol_url || null;
+
+  // ── Step 2: PokéWallet — set metadata + card types/stages ─────────────────
+  console.log('   Step 2: Fetching set metadata from PokéWallet...');
+
+  let pokeSet = null;
+  let pokeCardMap = new Map(); // card_number → { pokemon_type, stage, tcg_card_id }
+
+  try {
+    const allSets = await pokewalletFetch('/sets');
+    const sets = Array.isArray(allSets) ? allSets : (allSets.data || []);
+    pokeSet = sets.find(s => s.set_id === String(tcgSetId));
+
+    if (pokeSet) {
+      console.log(`   PokéWallet: Found set "${pokeSet.name}" (${pokeSet.set_code})`);
+
+      // Paginate through cards to get type/stage data
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const cardsData = await pokewalletFetch(`/sets/${pokeSet.set_code}?page=${page}&limit=50`);
+        const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.cards || []);
+
+        for (const card of pageCards) {
+          const num = card.card_info?.card_number || card.number || '';
+          if (num) {
+            pokeCardMap.set(num, {
+              pokemon_type: card.card_info?.card_type || null,
+              stage:        card.card_info?.stage || null,
+              tcg_card_id:  card.id || null,
+            });
+          }
+        }
+
+        hasMore = pageCards.length === 50;
+        page++;
+      }
+      console.log(`   PokéWallet: Got type/stage data for ${pokeCardMap.size} cards`);
+    } else {
+      console.log(`   PokéWallet: Set ${tcgSetId} not found — type/stage will be null`);
+    }
+  } catch (err) {
+    console.error(`   PokéWallet fetch failed (non-fatal): ${err.message}`);
+  }
+
+  // ── Step 3: Insert set into DB ─────────────────────────────────────────────
+  console.log('   Step 3: Inserting set into database...');
+
   const setResult = await query(`
-    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url, set_code, language)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url, set_code, symbol_url, language)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT (tcg_id) DO UPDATE SET
       name         = EXCLUDED.name,
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
       release_date = EXCLUDED.release_date,
-      logo_url     = EXCLUDED.logo_url,
       set_code     = EXCLUDED.set_code,
+      symbol_url   = EXCLUDED.symbol_url,
       language     = EXCLUDED.language
     RETURNING *
   `, [
-    tcgSetId,
-    setData.name,
-    setData.series || null,
-    setData.card_count || null,
-    parsePokeWalletDate(setData.release_date),
-    setData.logo_url || null,
-    setData.set_code || null,
-    setData.language || null,
+    String(tcgSetId),
+    tcgData.set_name,
+    pokeSet?.series || null,
+    tcgCards.length,
+    pokeSet ? parsePokeWalletDate(pokeSet.release_date) : (tcgSet?.published_on || null),
+    null, // logo_url — manually uploaded
+    tcgSet?.abbreviation || pokeSet?.set_code || null,
+    symbolUrl,
+    pokeSet?.language || 'eng',
   ]);
 
   const set = setResult.rows[0];
-  console.log(`📦 Importing set: ${set.name} (${tcgSetId})`);
+  console.log(`   ✅ Set "${set.name}" saved (DB id: ${set.id})`);
 
-  // Step 3: Fetch all cards for this set
-  // PokéWallet uses set_code (e.g. "CRI") not set_id for the /sets/:setCode endpoint
-  // and paginates at 50 cards per page
-  const setCode = setData.set_code;
-  let allCards = [];
-  let page = 1;
-  let hasMore = true;
+  // ── Step 4: Insert cards ───────────────────────────────────────────────────
+  console.log('   Step 4: Inserting cards...');
 
-  while (hasMore) {
-    const cardsData = await pokewalletFetch(`/sets/${setCode}?page=${page}&limit=50`);
-    const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.cards || []);
-    allCards = allCards.concat(pageCards);
-    hasMore = pageCards.length === 50;
-    page++;
-  }
-
-  const cards = allCards;
-
-  // Step 4: Insert each card
-  // We do this in a loop rather than one big INSERT for readability.
-  // For 200 cards this is fast enough — Postgres handles it fine.
   let inserted = 0;
-  for (const card of cards) {
-    const cardName = card.card_info?.name || card.name || null;
-    if (!cardName) {
-      console.log(`   ⚠️ Skipping card ${card.id} — no name`);
-      continue;
-    }
+  let skipped  = 0;
+
+  for (const tcgCard of tcgCards) {
+    const cardName = tcgCard.name;
+    if (!cardName) { skipped++; continue; }
+
+    // Look up PokéWallet data for this card number
+    const pokeCard = pokeCardMap.get(tcgCard.number) || {};
+
+    // Determine has_reverse_holo from cardtrader properties
+    const hasReverseHolo = tcgCard.cardtrader?.[0]?.properties
+      ?.some(p => p.name === 'pokemon_reverse') ?? null;
+
+    const tcgCardId = pokeCard.tcg_card_id || null;
+
     await query(`
-      INSERT INTO cards (set_id, tcg_card_id, card_number, name, pokemon_type, rarity, stage)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO cards (
+        set_id, tcg_card_id, tcgtracking_id, card_number, name,
+        pokemon_type, rarity, has_reverse_holo, image_url, stage
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (tcg_card_id) DO UPDATE SET
-        card_number  = EXCLUDED.card_number,
-        name         = EXCLUDED.name,
-        pokemon_type = EXCLUDED.pokemon_type,
-        rarity       = EXCLUDED.rarity,
-        stage        = EXCLUDED.stage
+        card_number      = EXCLUDED.card_number,
+        name             = EXCLUDED.name,
+        pokemon_type     = EXCLUDED.pokemon_type,
+        rarity           = EXCLUDED.rarity,
+        has_reverse_holo = EXCLUDED.has_reverse_holo,
+        image_url        = EXCLUDED.image_url,
+        stage            = EXCLUDED.stage,
+        tcgtracking_id   = EXCLUDED.tcgtracking_id
     `, [
       set.id,
-      card.id || card.tcg_id || null,
-      card.card_info?.card_number || card.number || card.card_number || '',
+      tcgCardId,
+      tcgCard.id,
+      tcgCard.number,
       cardName,
-      card.card_info?.card_type || null,
-      card.card_info?.rarity || null,
-      card.card_info?.stage || null,
+      pokeCard.pokemon_type || null,
+      tcgCard.rarity || null,
+      hasReverseHolo,
+      tcgCard.image_url || null,
+      pokeCard.stage || null,
     ]);
     inserted++;
   }
 
-  console.log(`   ✅ Inserted/updated ${inserted} cards for ${set.name}`);
+  console.log(`   ✅ Inserted/updated ${inserted} cards (${skipped} skipped) for ${set.name}`);
 
-  // Step 5: Kick off an initial price fetch for the new set
-  // We don't await this — let it run in the background
+  // ── Step 5: Kick off price refresh ────────────────────────────────────────
   refreshPricesForSet(set.id).catch(err => {
     console.error(`Initial price fetch failed for ${set.name}:`, err.message);
   });
@@ -187,64 +252,65 @@ export async function importSetCards(tcgSetId) {
 }
 
 // ─── REFRESH PRICES FOR SET ───────────────────────────────────────────────────
-// Fetches current prices for all cards in a set and inserts new price rows, loops 1 by 1 for the free tier.
-// Called by: the 24hr scheduler, the manual refresh button, and after import.
-
+// One API call to TCGTracking gets all prices for the whole set.
 export async function refreshPricesForSet(setId) {
-  const { rows: cards } = await query(`
-    SELECT id, tcg_card_id, name
-    FROM cards
-    WHERE set_id = $1 AND tcg_card_id IS NOT NULL
-  `, [setId]);
+  // Get the set's tcg_id (= TCGTracking set ID)
+  const { rows: setRows } = await query(
+    'SELECT tcg_id, name FROM sets WHERE id = $1', [setId]
+  );
 
-  if (cards.length === 0) {
-    console.log(`   No TCG-linked cards found for set ${setId}, skipping price refresh`);
+  if (!setRows[0]?.tcg_id) {
+    console.log(`   Set ${setId} has no tcg_id, skipping price refresh`);
     return;
   }
 
-  const { rows: setRows } = await query('SELECT tcg_id, name FROM sets WHERE id = $1', [setId]);
-  const setName = setRows[0]?.name || `set ${setId}`;
-  console.log(`💰 Refreshing prices for: ${setName} (${cards.length} cards)`);
+  const { tcg_id, name: setName } = setRows[0];
+  console.log(`💰 Refreshing prices for: ${setName}`);
+
+  // Get all cards in this set that have a tcgtracking_id
+  const { rows: cards } = await query(`
+    SELECT id, tcgtracking_id, name
+    FROM cards
+    WHERE set_id = $1 AND tcgtracking_id IS NOT NULL
+  `, [setId]);
+
+  if (cards.length === 0) {
+    console.log(`   No TCGTracking-linked cards found for set ${setId}, skipping`);
+    return;
+  }
+
+  // Fetch all prices for the set in one call
+  const priceData = await tcgtrackingFetch(`/sets/${tcg_id}/pricing`);
+  const prices = priceData.prices || {};
 
   let updated = 0;
   for (const card of cards) {
-    try {
-      const data = await pokewalletFetch(`/cards/${card.tcg_card_id}`);
+    const cardPrices = prices[String(card.tcgtracking_id)]?.tcg || {};
 
-      const tcgPrices = data.tcgplayer?.prices || [];
+    const normalPrices      = cardPrices['Normal']            || {};
+    const holofoilPrices    = cardPrices['Holofoil']          || {};
+    const reverseHoloPrices = cardPrices['Reverse Holofoil']  || {};
 
-      const normal      = tcgPrices.find(p => p.sub_type_name === 'Normal');
-      const holofoil    = tcgPrices.find(p => p.sub_type_name === 'Holofoil');
-      const reverseHolo = tcgPrices.find(p => p.sub_type_name === 'Reverse Holofoil');
+    const marketPrice      = normalPrices.market      || holofoilPrices.market    || null;
+    const lowPrice         = normalPrices.low         || holofoilPrices.low       || null;
+    const reverseHoloPrice = reverseHoloPrices.market || null;
+    const holofoilPrice    = holofoilPrices.market    || null;
 
-      const marketPrice      = normal?.market_price      || holofoil?.market_price      || null;
-      const lowPrice         = normal?.low_price         || holofoil?.low_price         || null;
-      const reverseHoloPrice = reverseHolo?.market_price || null;
-      const holofoilPrice    = holofoil?.market_price    || null;
+    if (!marketPrice && !reverseHoloPrice) continue;
 
-      await query(`
-        INSERT INTO prices (card_id, market_price, low_price, reverse_holo_price, holofoil_price)
-        VALUES ($1, $2, $3, $4, $5)
-      `, [card.id, marketPrice, lowPrice, reverseHoloPrice, holofoilPrice]);
+    await query(`
+      INSERT INTO prices (card_id, market_price, low_price, reverse_holo_price, holofoil_price)
+      VALUES ($1, $2, $3, $4, $5)
+    `, [card.id, marketPrice, lowPrice, reverseHoloPrice, holofoilPrice]);
 
-      updated++;
-
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-    } catch (err) {
-      console.error(`   ⚠️ Price fetch failed for ${card.name}:`, err.message);
-    }
+    updated++;
   }
 
   console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
 }
 
 // ─── SCHEDULED AUTO-REFRESH ───────────────────────────────────────────────────
-// Runs at 3:00 AM every day and refreshes prices for all sets in the DB.
-// 3 AM is a good time — low usage, prices have settled from the trading day.
 export function startPriceSync() {
-  // Cron syntax: minute hour day-of-month month day-of-week
-  // '0 3 * * *' = "at minute 0 of hour 3, every day"
   cron.schedule('0 3 * * *', async () => {
     console.log('🕐 Scheduled price sync starting...');
 
@@ -254,12 +320,10 @@ export function startPriceSync() {
 
     console.log(`   Refreshing prices for ${sets.length} sets`);
 
-    // Refresh sets one at a time to avoid hammering the API
     for (const set of sets) {
       try {
         await refreshPricesForSet(set.id);
-        // Small delay between sets to be a good API citizen
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (err) {
         console.error(`   Skipping ${set.name} due to error:`, err.message);
       }
