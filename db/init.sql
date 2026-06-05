@@ -61,6 +61,7 @@ CREATE TABLE cards (
 -- Index speeds up "give me all cards for set X" queries
 CREATE INDEX idx_cards_set_id ON cards(set_id);
 
+CREATE UNIQUE INDEX idx_cards_tcgtracking_id ON cards(tcgtracking_id) WHERE tcgtracking_id IS NOT NULL;
 
 -- ─── REVERSE HOLOS ───────────────────────────────────────────────────────────
 -- Reverse holo is a parallel version of most cards in a set.
