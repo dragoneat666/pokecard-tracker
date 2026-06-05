@@ -101,14 +101,16 @@ export async function importSetCards(tcgSetId) {
   // ON CONFLICT (tcg_id) DO UPDATE means if you try to import the same
   // set twice, it updates the metadata instead of erroring.
   const setResult = await query(`
-    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url, set_code, language)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (tcg_id) DO UPDATE SET
       name         = EXCLUDED.name,
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
       release_date = EXCLUDED.release_date,
-      logo_url     = EXCLUDED.logo_url
+      logo_url     = EXCLUDED.logo_url,
+      set_code     = EXCLUDED.set_code,
+      language     = EXCLUDED.language
     RETURNING *
   `, [
     tcgSetId,
@@ -117,6 +119,8 @@ export async function importSetCards(tcgSetId) {
     setData.card_count || null,
     parsePokeWalletDate(setData.release_date),
     setData.logo_url || null,
+    setData.set_code || null,
+    setData.language || null,
   ]);
 
   const set = setResult.rows[0];
@@ -151,13 +155,14 @@ export async function importSetCards(tcgSetId) {
       continue;
     }
     await query(`
-      INSERT INTO cards (set_id, tcg_card_id, card_number, name, pokemon_type, rarity)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO cards (set_id, tcg_card_id, card_number, name, pokemon_type, rarity, stage)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT (tcg_card_id) DO UPDATE SET
         card_number  = EXCLUDED.card_number,
         name         = EXCLUDED.name,
         pokemon_type = EXCLUDED.pokemon_type,
-        rarity       = EXCLUDED.rarity
+        rarity       = EXCLUDED.rarity,
+        stage        = EXCLUDED.stage
     `, [
       set.id,
       card.id || card.tcg_id || null,
@@ -165,6 +170,7 @@ export async function importSetCards(tcgSetId) {
       cardName,
       card.card_info?.card_type || null,
       card.card_info?.rarity || null,
+      card.card_info?.stage || null,
     ]);
     inserted++;
   }
