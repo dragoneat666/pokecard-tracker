@@ -128,18 +128,11 @@ function SetRow({ set, onClick }) {
   // Calculate regular vs secret cards
   // Regular = cards numbered within total_cards, Secret = cards above total
   // We use cards_in_db as proxy — split by card_number vs total_cards
-  const totalCards    = set.total_cards || set.cards_in_db || 0;
-  const cardsInDb     = set.cards_in_db || 0;
-  // Secrets are cards in DB beyond the official total
-  const regularCards  = Math.min(cardsInDb, totalCards);
-  const secretCards   = Math.max(0, cardsInDb - totalCards);
-
-  // Master set = 1 of each card + 1 reverse holo for reverse-holo-eligible cards
-  // We don't have that count directly so we approximate:
-  // master = cards_in_db (all cards) — reverse holos will be added when we have that data
-  // For now show cards_in_db as the base
-  const masterTotal   = cardsInDb; // Will be updated when reverse holo data is available
-  const masterOwned   = set.cards_owned || 0;
+  const regularCards  = set.regular_cards || 0;
+  const secretCards   = set.secret_cards  || 0;
+  const cardsInDb     = set.cards_in_db   || 0;
+  const masterTotal   = set.master_total  || 0;
+  const masterOwned   = set.master_owned  || 0;
   const masterPct     = masterTotal > 0 ? Math.min(100, (masterOwned / masterTotal) * 100) : 0;
 
   const totalValue    = parseFloat(set.total_value || 0) + parseFloat(set.reverse_holo_value || 0);
