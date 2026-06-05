@@ -47,11 +47,14 @@ CREATE TABLE cards (
   -- For the "set completion" stat: did you intentionally acquire a 2nd copy?
   -- This is separate from owned so we don't mess up owned=1 meaning "complete"
   has_extra     BOOLEAN NOT NULL DEFAULT FALSE,
+  has_reverse_holo BOOLEAN,
+  image_url     TEXT,
+  tcgtracking_id INTEGER,
+  stage            TEXT,
 
   condition     TEXT NOT NULL DEFAULT 'Near Mint'
                 CHECK (condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')),
 
-  stage         TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -146,14 +149,14 @@ SELECT
           > COALESCE(sd.printed_total, s.total_cards, 9999)
   ) AS secret_cards,
 
-  -- Reverse holo eligible: cards that have a reverse holo price
+  -- Reverse holo eligible: cards with has_reverse_holo = true
   COUNT(c.id) FILTER (
-    WHERE cp.reverse_holo_price IS NOT NULL
+    WHERE c.has_reverse_holo = true
   ) AS reverse_holo_count,
 
-  -- Master set total: all cards + reverse holo eligible cards
+  -- Master set total: all cards + reverse holo eligible
   COUNT(c.id) + COUNT(c.id) FILTER (
-    WHERE cp.reverse_holo_price IS NOT NULL
+    WHERE c.has_reverse_holo = true
   ) AS master_total,
 
   -- Master set owned: regular owned + reverse holos owned
