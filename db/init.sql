@@ -111,6 +111,14 @@ ORDER BY card_id, fetched_at DESC;
 -- This replaces your Table of Contents sheet.
 -- Aggregates per-set stats in one query — no formula linking required.
 CREATE VIEW set_summary AS
+WITH set_denominators AS (
+  SELECT 
+    set_id,
+    MAX(SPLIT_PART(card_number, '/', 2)::INTEGER) as printed_total
+  FROM cards
+  WHERE card_number LIKE '%/%'
+  GROUP BY set_id
+)
 SELECT
   s.id,
   s.name,
@@ -126,16 +134,16 @@ SELECT
   COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
   COUNT(c.id) AS cards_in_db,
 
-  -- Regular cards: numbered within the set total
+  -- Regular cards: numbered within the printed set total (denominator)
   COUNT(c.id) FILTER (
     WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
-          <= COALESCE(s.total_cards, 9999)
+          <= COALESCE(sd.printed_total, s.total_cards, 9999)
   ) AS regular_cards,
 
-  -- Secret cards: numbered above the set total
+  -- Secret cards: numbered above the printed set total
   COUNT(c.id) FILTER (
     WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
-          > COALESCE(s.total_cards, 9999)
+          > COALESCE(sd.printed_total, s.total_cards, 9999)
   ) AS secret_cards,
 
   -- Reverse holo eligible: cards that have a reverse holo price
@@ -161,8 +169,9 @@ SELECT
   COALESCE(SUM(cp.reverse_holo_price) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
 
 FROM sets s
+LEFT JOIN set_denominators sd ON sd.set_id = s.id
 LEFT JOIN cards c ON c.set_id = s.id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
-GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language, s.set_type
+GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language, s.set_type, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
