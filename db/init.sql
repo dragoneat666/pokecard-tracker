@@ -15,6 +15,9 @@ CREATE TABLE sets (
   total_cards   INT,                      -- Official printed total from the API
   release_date  DATE,
   logo_url      TEXT,                     -- URL to set logo image
+  set_code      TEXT,
+  symbol_url    TEXT,
+  language      TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW() -- Timestamp with timezone
 );
 
@@ -47,6 +50,7 @@ CREATE TABLE cards (
   condition     TEXT NOT NULL DEFAULT 'Near Mint'
                 CHECK (condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')),
 
+  stage         TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -113,6 +117,9 @@ SELECT
   s.total_cards,
   s.release_date,
   s.logo_url,
+  s.set_code,
+  s.symbol_url,
+  s.language,
 
   -- How many cards you own at least one of (owned >= 1)
   COUNT(c.id) FILTER (WHERE c.owned >= 1)        AS cards_owned,
@@ -136,5 +143,5 @@ FROM sets s
 LEFT JOIN cards c ON c.set_id = s.id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
-GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url
+GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language
 ORDER BY s.release_date DESC NULLS LAST;
