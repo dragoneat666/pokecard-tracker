@@ -123,22 +123,41 @@ SELECT
   s.language,
   s.set_type,
 
-  -- How many cards you own at least one of (owned >= 1)
-  COUNT(c.id) FILTER (WHERE c.owned >= 1)        AS cards_owned,
+  COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
+  COUNT(c.id) AS cards_in_db,
 
-  -- Total cards in our DB for this set (may differ from total_cards if set not fully imported)
-  COUNT(c.id)                                    AS cards_in_db,
+  -- Regular cards: numbered within the set total
+  COUNT(c.id) FILTER (
+    WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
+          <= COALESCE(s.total_cards, 9999)
+  ) AS regular_cards,
 
-  -- Completion percentage
+  -- Secret cards: numbered above the set total
+  COUNT(c.id) FILTER (
+    WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
+          > COALESCE(s.total_cards, 9999)
+  ) AS secret_cards,
+
+  -- Reverse holo eligible: cards that have a reverse holo price
+  COUNT(c.id) FILTER (
+    WHERE cp.reverse_holo_price IS NOT NULL
+  ) AS reverse_holo_count,
+
+  -- Master set total: all cards + reverse holo eligible cards
+  COUNT(c.id) + COUNT(c.id) FILTER (
+    WHERE cp.reverse_holo_price IS NOT NULL
+  ) AS master_total,
+
+  -- Master set owned: regular owned + reverse holos owned
+  COUNT(c.id) FILTER (WHERE c.owned >= 1) +
+  COUNT(rh.id) FILTER (WHERE rh.owned >= 1) AS master_owned,
+
   ROUND(
     COUNT(c.id) FILTER (WHERE c.owned >= 1)::NUMERIC
     / NULLIF(s.total_cards, 0) * 100
-  , 1)                                           AS completion_pct,
+  , 1) AS completion_pct,
 
-  -- Sum of current market prices for owned cards
   COALESCE(SUM(cp.market_price) FILTER (WHERE c.owned >= 1), 0) AS total_value,
-
-  -- Reverse holo value
   COALESCE(SUM(cp.reverse_holo_price) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
 
 FROM sets s
