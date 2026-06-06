@@ -161,12 +161,12 @@ function SetRow({ set, onClick }) {
       }}
     >
       {/* ── Section 1: Logo ── */}
-      <div style={{ width: 200, flexShrink: 0, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
+      <div style={{ width: 160, flexShrink: 0, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
         {set.logo_url ? (
           <img
             src={set.logo_url}
             alt={set.name}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }}
           />
         ) : (
           <div style={{
@@ -182,26 +182,21 @@ function SetRow({ set, onClick }) {
       </div>
 
       {/* ── Section 2: Identity ── */}
-      <div style={sectionStyle}>
+      <div style={{ ...sectionStyle, width: 160, flex: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           {set.symbol_url && (
-            <img src={set.symbol_url} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+            <img src={set.symbol_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain' }} />
           )}
           {set.set_code && (
             <span style={{
               background: 'var(--bg-input)', border: '1px solid var(--border)',
               borderRadius: 'var(--radius-sm)', padding: '2px 8px',
-              fontSize: '0.75rem', fontFamily: 'var(--font-display)',
+              fontSize: '0.68rem', fontFamily: 'var(--font-display)',
               fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em',
             }}>
               {set.set_code}
             </span>
-          )}
-          {set.series && (
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontWeight: 600 }}>
-              {set.series}
-            </span>
-          )}
+          )} 
         </div>
         {releaseDate && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -227,7 +222,7 @@ function SetRow({ set, onClick }) {
       </div>
 
       {/* ── Section 4: Master Set ── */}
-      <div style={{ ...sectionStyle, flex: 2 }}>
+      <div style={{ ...sectionStyle, flex: 1.5 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.78rem' }}>
           <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
             Master Set
