@@ -51,7 +51,7 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
 
   const typeColor = TYPE_COLORS[card.pokemon_type] || null;
   const rowBg = typeColor
-    ? (card.owned >= 1 ? typeColor + '25' : typeColor + '15')
+    ? (card.owned >= 1 ? typeColor + '4D' : typeColor + '33')
     : (zebra ? 'var(--bg-elevated)' : 'transparent');
   const ownedBg = rowBg;
 
@@ -246,7 +246,7 @@ function TypePip({ type }) {
       borderRadius: 99,
       fontSize: '0.75rem',
       fontWeight: 700,
-      background: color + '22',
+      background: color + '40',
       color: color,
       border: `1px solid ${color}44`,
       fontFamily: 'var(--font-display)',
