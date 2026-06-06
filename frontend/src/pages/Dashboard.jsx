@@ -125,20 +125,16 @@ export default function Dashboard() {
 
 // ── Set Row ───────────────────────────────────────────────────────────────────
 function SetRow({ set, onClick }) {
-  // Calculate regular vs secret cards
-  // Regular = cards numbered within total_cards, Secret = cards above total
-  // We use cards_in_db as proxy — split by card_number vs total_cards
   const regularCards  = set.regular_cards || 0;
   const secretCards   = set.secret_cards  || 0;
   const cardsInDb     = set.cards_in_db   || 0;
   const masterTotal   = set.master_total  || 0;
   const masterOwned   = set.master_owned  || 0;
   const masterPct     = masterTotal > 0 ? Math.min(100, (masterOwned / masterTotal) * 100) : 0;
-
   const totalValue    = parseFloat(set.total_value || 0) + parseFloat(set.reverse_holo_value || 0);
 
-  const releaseYear   = set.release_date
-    ? new Date(set.release_date).getFullYear()
+  const releaseDate = set.release_date
+    ? new Date(set.release_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : null;
 
   return (
@@ -148,12 +144,11 @@ function SetRow({ set, onClick }) {
         background: 'var(--bg-surface)',
         border: '1px solid var(--border)',
         borderRadius: 'var(--radius-lg)',
-        padding: 'var(--space-3) var(--space-4)',
         cursor: 'pointer',
-        display: 'grid',
-        gridTemplateColumns: '140px 1fr auto',
-        gap: 'var(--space-4)',
-        alignItems: 'center',
+        display: 'flex',
+        alignItems: 'stretch',
+        height: 80,
+        overflow: 'hidden',
         transition: 'background var(--transition), border-color var(--transition)',
       }}
       onMouseEnter={e => {
@@ -165,121 +160,105 @@ function SetRow({ set, onClick }) {
         e.currentTarget.style.borderColor = 'var(--border)';
       }}
     >
-      {/* ── Left: Logo + identity ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {/* Logo image or name fallback */}
+      {/* ── Section 1: Logo ── */}
+      <div style={{ width: 200, flexShrink: 0, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
         {set.logo_url ? (
           <img
             src={set.logo_url}
             alt={set.name}
-            style={{ width: '100%', maxHeight: 48, objectFit: 'contain', objectPosition: 'left' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
           />
         ) : (
           <div style={{
-            fontFamily: 'var(--font-display)',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            color: 'var(--text-primary)',
-            lineHeight: 1.2,
+            width: '100%', height: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 var(--space-3)',
+            fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.85rem',
+            color: 'var(--text-primary)', textAlign: 'center',
           }}>
             {set.name}
           </div>
         )}
-        {/* Symbol + set code badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {set.symbol_url ? (
-            <img src={set.symbol_url} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
-          ) : null}
+      </div>
+
+      {/* ── Section 2: Identity ── */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          {set.symbol_url && (
+            <img src={set.symbol_url} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+          )}
           {set.set_code && (
             <span style={{
-              background: 'var(--bg-input)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '1px 6px',
-              fontSize: '0.7rem',
-              fontFamily: 'var(--font-display)',
-              fontWeight: 700,
-              color: 'var(--text-secondary)',
-              letterSpacing: '0.05em',
+              background: 'var(--bg-input)', border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)', padding: '2px 8px',
+              fontSize: '0.75rem', fontFamily: 'var(--font-display)',
+              fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em',
             }}>
               {set.set_code}
             </span>
           )}
-          {releaseYear && (
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{releaseYear}</span>
+          {set.series && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontWeight: 600 }}>
+              {set.series}
+            </span>
           )}
         </div>
+        {releaseDate && (
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Release: {releaseDate}
+          </div>
+        )}
       </div>
 
-      {/* ── Middle: Stats ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-5)', flexWrap: 'wrap' }}>
-
-        {/* Card counts */}
-        <div style={{ minWidth: 130 }}>
-          <div style={statLineStyle}>
-            <span style={{ color: 'var(--text-muted)' }}>Regular</span>
-            <span style={{ fontWeight: 700 }}>{regularCards}</span>
-          </div>
-          <div style={statLineStyle}>
-            <span style={{ color: 'var(--text-muted)' }}>Secret</span>
-            <span style={{ fontWeight: 700 }}>{secretCards}</span>
-          </div>
-          <div style={{ ...statLineStyle, marginTop: 2, paddingTop: 2, borderTop: '1px solid var(--border)' }}>
-            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total</span>
-            <span style={{ fontWeight: 800 }}>{cardsInDb}</span>
-          </div>
+      {/* ── Section 3: Card counts ── */}
+      <div style={sectionStyle}>
+        <div style={statLineStyle}>
+          <span style={{ color: 'var(--text-muted)' }}>Regular</span>
+          <span style={{ fontWeight: 700 }}>{regularCards}</span>
         </div>
-
-        {/* Master set progress */}
-        <div style={{ flex: 1, minWidth: 180, maxWidth: 320 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.78rem' }}>
-            <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
-              Master Set
-            </span>
-            <span style={{ color: 'var(--text-secondary)' }}>
-              {masterOwned} / {masterTotal}
-            </span>
-          </div>
-          {/* Progress bar */}
-          <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden', marginBottom: 4 }}>
-            <div style={{
-              height: '100%',
-              width: `${masterPct}%`,
-              background: masterPct >= 100 ? 'var(--success)' : 'var(--accent)',
-              borderRadius: 3,
-              transition: 'width 0.5s ease',
-            }} />
-          </div>
-          <div style={{ fontSize: '0.72rem', color: masterPct >= 100 ? 'var(--success)' : 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
-            {masterPct.toFixed(1)}%
-          </div>
+        <div style={statLineStyle}>
+          <span style={{ color: 'var(--text-muted)' }}>Secret</span>
+          <span style={{ fontWeight: 700 }}>{secretCards}</span>
         </div>
-
+        <div style={{ ...statLineStyle, marginTop: 2, paddingTop: 2, borderTop: '1px solid var(--border)' }}>
+          <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total</span>
+          <span style={{ fontWeight: 800 }}>{cardsInDb}</span>
+        </div>
       </div>
 
-      {/* ── Right: Value ── */}
-      <div style={{ textAlign: 'right', minWidth: 90 }}>
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
+      {/* ── Section 4: Master Set ── */}
+      <div style={{ ...sectionStyle, flex: 2 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '0.78rem' }}>
+          <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+            Master Set
+          </span>
+          <span style={{ color: 'var(--text-secondary)' }}>{masterOwned} / {masterTotal}</span>
+        </div>
+        <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden', marginBottom: 4 }}>
+          <div style={{
+            height: '100%', width: `${masterPct}%`,
+            background: masterPct >= 100 ? 'var(--success)' : 'var(--accent)',
+            borderRadius: 3, transition: 'width 0.5s ease',
+          }} />
+        </div>
+        <div style={{ fontSize: '0.72rem', color: masterPct >= 100 ? 'var(--success)' : 'var(--text-muted)', fontWeight: 700, textAlign: 'right' }}>
+          {masterPct.toFixed(1)}%
+        </div>
+      </div>
+
+      {/* ── Section 5: Value ── */}
+      <div style={{ ...sectionStyle, textAlign: 'right', minWidth: 100 }}>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
           Set Value
         </div>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.1rem', color: 'var(--success)' }}>
           {formatPrice(totalValue)}
         </div>
-        {set.series && (
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            {set.series}
-          </div>
-        )}
         {set.set_type && set.set_type !== 'Main' && (
           <div style={{
-            display: 'inline-block',
-            marginTop: 4,
-            padding: '1px 6px',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '0.65rem',
-            fontWeight: 700,
-            background: 'var(--accent-light)',
-            color: 'var(--accent)',
+            display: 'inline-block', marginTop: 4, padding: '1px 6px',
+            borderRadius: 'var(--radius-sm)', fontSize: '0.65rem', fontWeight: 700,
+            background: 'var(--accent-light)', color: 'var(--accent)',
             fontFamily: 'var(--font-display)',
           }}>
             {set.set_type}
@@ -289,6 +268,15 @@ function SetRow({ set, onClick }) {
     </div>
   );
 }
+
+const sectionStyle = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'center',
+  padding: '0 var(--space-4)',
+  borderLeft: '1px solid var(--border)',
+};
 
 const statLineStyle = {
   display: 'flex',
