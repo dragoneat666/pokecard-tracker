@@ -92,6 +92,7 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
           background: rarityColor + '22',  // 22 = ~13% opacity in hex
           color: rarityColor,
           border: `1px solid ${rarityColor}44`,
+          fontWeight: 700,
         }}>
           {rarityLabel}
         </span>
@@ -210,7 +211,7 @@ function Checkbox({ checked, onClick, title, dim = false, color = 'var(--success
         width: 18,
         height: 18,
         borderRadius: 4,
-        border: `2px solid ${checked ? color : 'var(--border)'}`,
+        border: `2px solid ${checked ? color : 'rgba(255,255,255,0.5)'}`,
         background: checked ? color : 'transparent',
         cursor: 'pointer',
         display: 'flex',
