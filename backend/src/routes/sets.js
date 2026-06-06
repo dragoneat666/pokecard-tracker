@@ -31,6 +31,7 @@ router.get('/', async (_req, res, next) => {
         symbol_url,
         language,
         set_type,
+        variant_type,
         cards_owned,
         cards_in_db,
         regular_cards,
@@ -85,6 +86,7 @@ router.get('/:id', async (req, res, next) => {
         c.owned,
         c.has_extra,
         c.has_reverse_holo,
+        c.has_first_edition,
         c.image_url,
         c.tcgtracking_id,
         -- Reverse holo owned count (0 if no reverse holo row exists)
