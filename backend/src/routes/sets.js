@@ -84,6 +84,9 @@ router.get('/:id', async (req, res, next) => {
         c.stage,
         c.owned,
         c.has_extra,
+        c.has_reverse_holo,
+        c.image_url,
+        c.tcgtracking_id,
         -- Reverse holo owned count (0 if no reverse holo row exists)
         COALESCE(rh.owned, 0) AS reverse_owned,
         -- Current prices from the view
@@ -141,7 +144,7 @@ router.post('/search-tcg', async (req, res, next) => {
 //   You then add cards one by one.
 router.post('/', async (req, res, next) => {
   try {
-    const { tcg_id, name, series, total_cards, release_date, logo_url } = req.body;
+    const { tcg_id, name, series, total_cards, release_date, logo_url, set_code, language, set_type } = req.body;
 
     if (tcg_id) {
       // Mode 1: Import from PokéWallet API
@@ -156,10 +159,10 @@ router.post('/', async (req, res, next) => {
     }
 
     const { rows } = await query(`
-      INSERT INTO sets (name, series, total_cards, release_date, logo_url)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO sets (name, series, total_cards, release_date, logo_url, set_code, language, set_type)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [name, series, total_cards || null, release_date || null, logo_url || null]);
+    `, [name, series, total_cards || null, release_date || null, logo_url || null, set_code || null, language || null, set_type || 'Main']);
 
     res.status(201).json(rows[0]);
     // 201 Created is the correct HTTP status for "I made a new thing"
