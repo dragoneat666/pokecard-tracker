@@ -49,9 +49,10 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
     ? parseFloat(card.reverse_holo_price) * card.reverse_owned
     : null;
 
-  const typeColor = TYPE_COLORS[card.pokemon_type] || null;
+  const typeColor = TYPE_COLORS[card.pokemon_type] || 
+    Object.entries(TYPE_COLORS).find(([key]) => card.pokemon_type?.includes(key))?.[1] || null;
   const rowBg = typeColor
-    ? (card.owned >= 1 ? typeColor + '4D' : typeColor + '33')
+    ? (card.owned >= 1 ? typeColor + '35' : typeColor + '20')
     : (zebra ? 'var(--bg-elevated)' : 'transparent');
   const ownedBg = rowBg;
 
@@ -66,7 +67,7 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
     >
       {/* Card number */}
       <td style={tdStyle}>
-        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 700 }}>
+        <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 700 }}>
           {card.card_number}
         </span>
       </td>
@@ -234,11 +235,12 @@ const TYPE_COLORS = {
   Fire:       '#F08030', Water:      '#6890F0', Grass:    '#78C850',
   Lightning:  '#F8D030', Psychic:    '#F85888', Fighting: '#C03028',
   Darkness:   '#705848', Metal:      '#B8B8D0', Dragon:   '#7038F8',
-  Colorless:  '#A8A878', Fairy:      '#EE99AC',
+  Colorless:  '#A8A878', Fairy:      '#EE99AC', Trainer:    '#F5DC93',
 };
 
 function TypePip({ type }) {
-  const color = TYPE_COLORS[type] || '#8b92b8';
+  const color = TYPE_COLORS[type] || 
+    Object.entries(TYPE_COLORS).find(([key]) => type?.includes(key))?.[1] || '#8b92b8';
   return (
     <span style={{
       display: 'inline-block',
