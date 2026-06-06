@@ -119,6 +119,25 @@ export async function importSetCards(tcgSetId) {
   const tcgSet = searchData.sets?.find(s => String(s.id) === String(tcgSetId));
   const symbolUrl = tcgSet?.set_symbol_url || null;
 
+  // Fetch TCGdex logo URL — non-fatal if it fails or set not found
+  let logoUrl = null;
+  try {
+    const tcgdexSets = await fetch('https://api.tcgdex.net/v2/en/sets').then(r => r.json());
+    const tcgdexSet = tcgdexSets.find(s =>
+      s.name.toLowerCase() === tcgData.set_name.toLowerCase() ||
+      s.name.toLowerCase().includes(tcgData.set_name.toLowerCase()) ||
+      tcgData.set_name.toLowerCase().includes(s.name.toLowerCase())
+    );
+    if (tcgdexSet?.logo) {
+      logoUrl = tcgdexSet.logo + '.png';
+      console.log(`   TCGdex: Found logo for "${tcgdexSet.name}"`);
+    } else {
+      console.log(`   TCGdex: No logo found for "${tcgData.set_name}"`);
+    }
+  } catch (err) {
+    console.log(`   TCGdex logo fetch failed (non-fatal): ${err.message}`);
+  }
+
   // ── Step 2: PokéWallet — set metadata + card types/stages ─────────────────
   console.log('   Step 2: Fetching set metadata from PokéWallet...');
 
@@ -173,6 +192,7 @@ export async function importSetCards(tcgSetId) {
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
       release_date = EXCLUDED.release_date,
+      logo_url     = EXCLUDED.logo_url,
       set_code     = EXCLUDED.set_code,
       symbol_url   = EXCLUDED.symbol_url,
       language     = EXCLUDED.language
@@ -183,7 +203,7 @@ export async function importSetCards(tcgSetId) {
     pokeSet?.series || null,
     tcgCards.length,
     pokeSet ? parsePokeWalletDate(pokeSet.release_date) : (tcgSet?.published_on || null),
-    null, // logo_url — manually uploaded
+    logoUrl,
     tcgSet?.abbreviation || pokeSet?.set_code || null,
     symbolUrl,
     pokeSet?.language || 'eng',
