@@ -229,20 +229,24 @@ export async function importSetCards(tcgSetId) {
     const hasReverseHolo = tcgCard.cardtrader?.[0]?.properties
       ?.some(p => p.name === 'pokemon_reverse') ?? null;
 
+    const hasFirstEdition = tcgCard.cardtrader?.[0]?.properties
+      ?.some(p => p.name === 'first_edition') ?? null;
+
     const tcgCardId = pokeCard.tcg_card_id || null;
 
     await query(`
       INSERT INTO cards (
         set_id, tcg_card_id, tcgtracking_id, card_number, name,
-        pokemon_type, rarity, has_reverse_holo, image_url, stage
+        pokemon_type, rarity, has_reverse_holo, has_first_edition, image_url, stage
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (tcgtracking_id) WHERE tcgtracking_id IS NOT NULL DO UPDATE SET
         card_number      = EXCLUDED.card_number,
         name             = EXCLUDED.name,
         pokemon_type     = EXCLUDED.pokemon_type,
         rarity           = EXCLUDED.rarity,
         has_reverse_holo = EXCLUDED.has_reverse_holo,
+        has_first_edition = EXCLUDED.has_first_edition,
         image_url        = EXCLUDED.image_url,
         stage            = EXCLUDED.stage,
         tcgtracking_id   = EXCLUDED.tcgtracking_id
@@ -255,6 +259,7 @@ export async function importSetCards(tcgSetId) {
       pokeCard.pokemon_type || null,
       tcgCard.rarity || null,
       hasReverseHolo,
+      hasFirstEdition,
       tcgCard.image_url || null,
       pokeCard.stage || null,
     ]);
