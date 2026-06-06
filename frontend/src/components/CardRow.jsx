@@ -49,10 +49,11 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
     ? parseFloat(card.reverse_holo_price) * card.reverse_owned
     : null;
 
-  const rowBg = zebra ? 'var(--bg-elevated)' : 'transparent';
-  const ownedBg = card.owned >= 1
-    ? 'rgba(76, 175, 125, 0.06)'   // Slight green tint for owned rows
-    : rowBg;
+  const typeColor = TYPE_COLORS[card.pokemon_type] || null;
+  const rowBg = typeColor
+    ? (card.owned >= 1 ? typeColor + '25' : typeColor + '15')
+    : (zebra ? 'var(--bg-elevated)' : 'transparent');
+  const ownedBg = rowBg;
 
   return (
     <tr style={{
