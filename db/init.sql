@@ -19,6 +19,7 @@ CREATE TABLE sets (
   symbol_url    TEXT,
   language      TEXT,
   set_type      TEXT NOT NULL DEFAULT 'Main',
+  variant_type  TEXT NOT NULL DEFAULT 'reverse_holo',
   created_at    TIMESTAMPTZ DEFAULT NOW() -- Timestamp with timezone
 );
 
@@ -48,6 +49,7 @@ CREATE TABLE cards (
   -- This is separate from owned so we don't mess up owned=1 meaning "complete"
   has_extra     BOOLEAN NOT NULL DEFAULT FALSE,
   has_reverse_holo BOOLEAN,
+  has_first_edition BOOLEAN,
   image_url     TEXT,
   tcgtracking_id INTEGER,
   stage            TEXT,
@@ -134,6 +136,7 @@ SELECT
   s.symbol_url,
   s.language,
   s.set_type,
+  s.variant_type,
 
   COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
   COUNT(c.id) AS cards_in_db,
@@ -150,14 +153,14 @@ SELECT
           > COALESCE(sd.printed_total, s.total_cards, 9999)
   ) AS secret_cards,
 
-  -- Reverse holo eligible: cards with has_reverse_holo = true
+  -- Reverse holo eligible OR first edition eligible
   COUNT(c.id) FILTER (
-    WHERE c.has_reverse_holo = true
+    WHERE c.has_reverse_holo = true OR c.has_first_edition = true
   ) AS reverse_holo_count,
 
-  -- Master set total: all cards + reverse holo eligible
+  -- Master set total: all cards + variant eligible cards
   COUNT(c.id) + COUNT(c.id) FILTER (
-    WHERE c.has_reverse_holo = true
+    WHERE c.has_reverse_holo = true OR c.has_first_edition = true
   ) AS master_total,
 
   -- Master set owned: regular owned + reverse holos owned
@@ -177,5 +180,5 @@ LEFT JOIN set_denominators sd ON sd.set_id = s.id
 LEFT JOIN cards c ON c.set_id = s.id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
-GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language, s.set_type, sd.printed_total
+GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
