@@ -147,7 +147,7 @@ function SetRow({ set, onClick }) {
         cursor: 'pointer',
         display: 'flex',
         alignItems: 'stretch',
-        height: 80,
+        height: 90,
         overflow: 'hidden',
         transition: 'background var(--transition), border-color var(--transition)',
       }}
@@ -161,7 +161,7 @@ function SetRow({ set, onClick }) {
       }}
     >
       {/* ── Section 1: Logo ── */}
-      <div style={{ width: 160, flexShrink: 0, overflow: 'hidden', background: 'var(--bg-elevated)' }}>
+      <div style={{ width: 200, flexShrink: 0, overflow: 'hidden', padding: '4px 8px', display: 'flex', alignItems: 'center' }}>
         {set.logo_url ? (
           <img
             src={set.logo_url}
@@ -182,7 +182,7 @@ function SetRow({ set, onClick }) {
       </div>
 
       {/* ── Section 2: Identity ── */}
-      <div style={{ ...sectionStyle, width: 160, flex: 'none' }}>
+      <div style={{ ...sectionStyle, width: 200, flex: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           {set.symbol_url && (
             <img src={set.symbol_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain' }} />
@@ -270,7 +270,6 @@ const sectionStyle = {
   flexDirection: 'column',
   justifyContent: 'center',
   padding: '0 var(--space-4)',
-  borderLeft: '1px solid var(--border)',
 };
 
 const statLineStyle = {
