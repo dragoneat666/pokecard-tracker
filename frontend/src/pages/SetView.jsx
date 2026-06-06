@@ -10,7 +10,7 @@
 //   - Refresh prices button
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
 import { isCollectorRarity, formatPrice } from '../rarity.js';
@@ -20,15 +20,16 @@ import SetStats from '../components/SetStats.jsx';
 export default function SetView() {
   const { id }  = useParams();   // The set ID from the URL /sets/:id
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [setData, setSetData]   = useState(null);
   const [cards, setCards]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter]     = useState('all'); // 'all' | 'owned' | 'missing'
   const [search, setSearch]     = useState('');
+  const [sortCol, setSortCol]       = useState('number');
+  const [sortDir, setSortDir]       = useState('asc');
+  const [quickFilter, setQuickFilter] = useState('all');
 
   const { toast, showToast } = useToast();
 
@@ -106,6 +107,15 @@ export default function SetView() {
     }
   }
 
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  }
+
   // ── Price refresh ─────────────────────────────────────────────────────────
   async function handleRefreshPrices() {
     try {
@@ -123,16 +133,38 @@ export default function SetView() {
 
   // ── Filtered card list ────────────────────────────────────────────────────
   const filteredCards = cards.filter(card => {
-    const matchesFilter =
-      filter === 'all'     ? true :
-      filter === 'owned'   ? card.owned >= 1 :
-      filter === 'missing' ? card.owned === 0 : true;
+    const matchesQuickFilter =
+      quickFilter === 'all'             ? true :
+      quickFilter === 'missing_regular' ? card.owned === 0 :
+      quickFilter === 'missing_reverse' ? (card.has_reverse_holo && card.reverse_owned === 0) :
+      quickFilter === 'missing_all'     ? (card.owned === 0 || (card.has_reverse_holo && card.reverse_owned === 0)) : true;
 
     const matchesSearch = !search ||
       card.name.toLowerCase().includes(search.toLowerCase()) ||
-      card.card_number.includes(search);
+      card.card_number.includes(search) ||
+      card.pokemon_type?.toLowerCase().includes(search.toLowerCase()) ||
+      card.rarity?.toLowerCase().includes(search.toLowerCase()) ||
+      card.storage?.toLowerCase().includes(search.toLowerCase());
 
-    return matchesFilter && matchesSearch;
+    return matchesQuickFilter && matchesSearch;
+  });
+
+  const sortedCards = [...filteredCards].sort((a, b) => {
+    let aVal, bVal;
+    if (sortCol === 'number') {
+      aVal = parseInt(a.card_number) || 0;
+      bVal = parseInt(b.card_number) || 0;
+    } else if (sortCol === 'name') {
+      aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase();
+    } else if (sortCol === 'rarity') {
+      aVal = a.rarity || ''; bVal = b.rarity || '';
+    } else if (sortCol === 'price') {
+      aVal = parseFloat(a.market_price) || 0;
+      bVal = parseFloat(b.market_price) || 0;
+    }
+    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+    return 0;
   });
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -182,29 +214,30 @@ export default function SetView() {
       <SetStats cards={cards} />
 
       {/* ── Filters ── */}
-      <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'center' }}>
-        {['all', 'owned', 'missing'].map(f => (
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+        {[
+          { key: 'all',             label: 'Clear' },
+          { key: 'missing_regular', label: `Missing Regular (${cards.filter(c => c.owned === 0).length})` },
+          { key: 'missing_reverse', label: `Missing Reverse (${cards.filter(c => c.has_reverse_holo && c.reverse_owned === 0).length})` },
+          { key: 'missing_all',     label: `Missing All (${cards.filter(c => c.owned === 0 || (c.has_reverse_holo && c.reverse_owned === 0)).length})` },
+        ].map(({ key, label }) => (
           <button
-            key={f}
-            className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setFilter(f)}
+            key={key}
+            className={`btn btn-sm ${quickFilter === key ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setQuickFilter(key)}
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-            {f === 'owned'   && ` (${cards.filter(c => c.owned >= 1).length})`}
-            {f === 'missing' && ` (${cards.filter(c => c.owned === 0).length})`}
+            {label}
           </button>
         ))}
-
         <input
           className="input"
-          placeholder="Search by name or number…"
+          placeholder="Search name, number, type, rarity, storage…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ width: 220 }}
+          style={{ width: 280 }}
         />
-
         <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-          {filteredCards.length} card{filteredCards.length !== 1 ? 's' : ''}
+          {sortedCards.length} card{sortedCards.length !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -213,14 +246,41 @@ export default function SetView() {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                {['#', 'Name', 'Type', 'Rarity', 'Regular', 'Reverse Holo', 'Storage', 'Condition', 'Price', 'Total', 'Rev Price', 'Rev Total'].map(h => (
-                  <th key={h} style={thStyle}>{h}</th>
-                ))}
-              </tr>
-            </thead>
+                <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+                  {[
+                    { label: '#',            col: 'number' },
+                    { label: 'Name',         col: 'name' },
+                    { label: 'Type',         col: null },
+                    { label: 'Rarity',       col: 'rarity' },
+                    { label: 'Regular',      col: null },
+                    { label: 'Reverse Holo', col: null },
+                    { label: 'Storage',      col: null },
+                    { label: 'Condition',    col: null },
+                    { label: 'Price',        col: 'price' },
+                    { label: 'Total',        col: null },
+                    { label: 'Rev Price',    col: null },
+                    { label: 'Rev Total',    col: null },
+                  ].map(({ label, col }) => (
+                    <th
+                      key={label}
+                      style={{
+                        ...thStyle,
+                        cursor: col ? 'pointer' : 'default',
+                        userSelect: 'none',
+                        color: col && sortCol === col ? 'var(--accent)' : 'var(--text-secondary)',
+                      }}
+                      onClick={() => col && handleSort(col)}
+                    >
+                      {label}
+                      {col && sortCol === col && (
+                        <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
             <tbody>
-              {filteredCards.map((card, idx) => (
+              {sortedCards.map((card, idx) => (
                 <CardRow
                   key={card.id}
                   card={card}
@@ -231,7 +291,7 @@ export default function SetView() {
                   onConditionChange={handleConditionChange}
                 />
               ))}
-              {filteredCards.length === 0 && (
+              {sortedCards.length === 0 && (
                 <tr>
                   <td colSpan={12} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
                     No cards match the current filter.
