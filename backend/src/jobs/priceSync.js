@@ -217,7 +217,7 @@ export async function importSetCards(tcgSetId) {
         pokemon_type, rarity, has_reverse_holo, image_url, stage
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (tcgtracking_id) DO UPDATE SET
+      ON CONFLICT (tcgtracking_id) WHERE tcgtracking_id IS NOT NULL DO UPDATE SET
         card_number      = EXCLUDED.card_number,
         name             = EXCLUDED.name,
         pokemon_type     = EXCLUDED.pokemon_type,
