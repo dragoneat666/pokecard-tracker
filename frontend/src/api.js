@@ -43,6 +43,7 @@ export const api = {
     searchTcg: (query)      => request('POST',   '/sets/search-tcg', { query }),
     create:    (data)       => request('POST',   '/sets', data),
     delete:    (id)         => request('DELETE', `/sets/${id}`),
+    update: (id, data) => request('PATCH', `/sets/${id}`, data),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
