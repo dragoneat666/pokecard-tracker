@@ -75,7 +75,6 @@ router.get('/:id', async (req, res, next) => {
     const cardsResult = await query(`
       SELECT
         c.id,
-        c.tcg_card_id,
         c.card_number,
         c.name,
         c.pokemon_type,
