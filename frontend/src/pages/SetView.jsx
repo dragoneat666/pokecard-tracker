@@ -136,8 +136,8 @@ export default function SetView() {
     const matchesQuickFilter =
       quickFilter === 'all'             ? true :
       quickFilter === 'missing_regular' ? card.owned === 0 :
-      quickFilter === 'missing_reverse' ? (card.has_reverse_holo && card.reverse_owned === 0) :
-      quickFilter === 'missing_all'     ? (card.owned === 0 || (card.has_reverse_holo && card.reverse_owned === 0)) : true;
+      quickFilter === 'missing_reverse' ? ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0) :
+      quickFilter === 'missing_all'     ? (card.owned === 0 || ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0)) : true;
 
     const matchesSearch = !search ||
       card.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -218,8 +218,8 @@ export default function SetView() {
         {[
           { key: 'all',             label: 'Clear' },
           { key: 'missing_regular', label: `Missing Regular (${cards.filter(c => c.owned === 0).length})` },
-          { key: 'missing_reverse', label: `Missing Reverse (${cards.filter(c => c.has_reverse_holo && c.reverse_owned === 0).length})` },
-          { key: 'missing_all',     label: `Missing All (${cards.filter(c => c.owned === 0 || (c.has_reverse_holo && c.reverse_owned === 0)).length})` },
+          { key: 'missing_reverse', label: `Missing ${setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => (setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0).length})` },
+          { key: 'missing_all',     label: `Missing All (${cards.filter(c => c.owned === 0 || ((setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0)).length})` },
         ].map(({ key, label }) => (
           <button
             key={key}
