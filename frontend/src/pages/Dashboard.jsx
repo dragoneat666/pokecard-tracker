@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [showAdd, setShowAdd]       = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [typeFilter, setTypeFilter] = useState('All');
+  const [showNavigator, setShowNavigator] = useState(false);
 
   // collapsed is a Set of series names that are currently collapsed.
   // The () => lazy initializer reads from localStorage once on first render.
@@ -120,19 +121,33 @@ export default function Dashboard() {
     <div style={{ maxWidth: 1300, margin: '0 auto' }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-        <div>
-          <h1 style={{ fontSize: '1.5rem', marginBottom: 2 }}>My Collection</h1>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {totals.sets} sets · {totals.owned.toLocaleString()} cards owned · {formatPrice(totals.value)} total value
-          </span>
+      <div style={{ marginBottom: 'var(--space-4)' }}>
+      
+        {/* Row 1: Title + Add Set */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+          <div>
+            <h1 style={{ fontSize: '1.5rem', marginBottom: 2 }}>My Collection</h1>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              {totals.sets} sets · {totals.owned.toLocaleString()} cards owned · {formatPrice(totals.value)} total value
+            </span>
+          </div>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Set</button>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+      
+        {/* Row 2: Navigation controls — right aligned */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
           <button className="btn btn-ghost btn-sm" onClick={toggleAll}>
             {allCollapsed ? '▶ Expand All' : '▼ Collapse All'}
           </button>
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Set</button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowNavigator(prev => !prev)}
+            title="Set Navigator"
+          >
+            ☰
+          </button>
         </div>
+      
       </div>
 
       {/* ── Type filter buttons ── */}
