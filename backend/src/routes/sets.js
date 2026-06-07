@@ -172,6 +172,32 @@ router.post('/', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/sets/:id ──────────────────────────────────────────────────────
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, set_type, variant_type, logo_url, symbol_url, series, release_date } = req.body;
+
+    const { rows } = await query(`
+      UPDATE sets SET
+        name         = COALESCE($1, name),
+        set_type     = COALESCE($2, set_type),
+        variant_type = COALESCE($3, variant_type),
+        logo_url     = $4,
+        symbol_url   = $5,
+        series       = COALESCE($6, series),
+        release_date = COALESCE($7::date, release_date)
+      WHERE id = $8
+      RETURNING *
+    `, [name, set_type, variant_type, logo_url, symbol_url, series, release_date, id]);
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Set not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── DELETE /api/sets/:id ─────────────────────────────────────────────────────
 // Deletes a set. Because of ON DELETE CASCADE in init.sql, this also
 // automatically deletes all cards, reverse_holos, and prices for that set.
