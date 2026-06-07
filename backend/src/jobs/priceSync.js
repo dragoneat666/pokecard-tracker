@@ -175,9 +175,9 @@ export async function importSetCards(tcgSetId) {
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
       release_date = EXCLUDED.release_date,
-      logo_url     = EXCLUDED.logo_url,
+      logo_url     = COALESCE(EXCLUDED.logo_url, sets.logo_url),
       set_code     = EXCLUDED.set_code,
-      symbol_url   = EXCLUDED.symbol_url,
+      symbol_url   = COALESCE(EXCLUDED.symbol_url, sets.symbol_url),
       language     = EXCLUDED.language
     RETURNING *
   `, [
