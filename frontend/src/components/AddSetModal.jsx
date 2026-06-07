@@ -1,23 +1,41 @@
 // components/AddSetModal.jsx — Modal dialog for adding a new set
 //
 // Two tabs:
-//   1. Search TCG API — type a name, pick from results, import automatically
+//   1. Search TCG API — search, select multiple, bulk import with progress
 //   2. Manual — fill in name/series/total yourself
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 
 export default function AddSetModal({ onClose, onAdded }) {
-  const [tab, setTab]           = useState('search'); // 'search' | 'manual'
-  const [query, setQuery]       = useState('');
-  const [results, setResults]   = useState([]);
+  const [tab, setTab]             = useState('search');
+  const [query, setQuery]         = useState('');
+  const [results, setResults]     = useState([]);
   const [searching, setSearching] = useState(false);
-  const [importing, setImporting] = useState(null); // tcg_id being imported
-  const [error, setError]       = useState(null);
+  const [error, setError]         = useState(null);
+
+  // Set of set_id strings the user has checked
+  const [selected, setSelected]   = useState(new Set());
+
+  // Set of tcg_id values already in the DB — fetched on mount
+  const [importedIds, setImportedIds] = useState(new Set());
+
+  // Bulk import progress: null when idle, object when running or done
+  // { current, total, currentName, done, results: [{ name, ok, error }] }
+  const [bulkProgress, setBulkProgress] = useState(null);
 
   // Manual form state
   const [manual, setManual] = useState({ name: '', series: '', total_cards: '' });
   const [saving, setSaving] = useState(false);
+
+  // ── Fetch already-imported set IDs on mount ───────────────────────────────
+  // We load all sets from the API and pull out their tcg_id values.
+  // This lets us show "✓ In collection" on search results without extra backend work.
+  useEffect(() => {
+    api.sets.list().then(sets => {
+      setImportedIds(new Set(sets.map(s => s.tcg_id).filter(Boolean)));
+    }).catch(() => {}); // non-fatal — badge just won't show
+  }, []);
 
   // ── TCG Search ────────────────────────────────────────────────────────────
   async function handleSearch(e) {
@@ -26,6 +44,7 @@ export default function AddSetModal({ onClose, onAdded }) {
     try {
       setSearching(true);
       setError(null);
+      setSelected(new Set()); // clear selection on new search
       const data = await api.sets.searchTcg(query);
       setResults(data);
       if (data.length === 0) setError('No sets found — try a different name');
@@ -36,16 +55,71 @@ export default function AddSetModal({ onClose, onAdded }) {
     }
   }
 
-  async function handleImport(set) {
-    try {
-      setImporting(set.set_id);
-      setError(null);
-      await api.sets.create({ tcg_id: set.set_id });
-      onAdded();
-    } catch (err) {
-      setError(err.message);
-      setImporting(null);
+  // Toggle one set in/out of the selection
+  function toggleSelect(setId) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(setId)) next.delete(setId);
+      else next.add(setId);
+      return next;
+    });
+  }
+
+  // Select all / deselect all results
+  function toggleSelectAll() {
+    if (selected.size === results.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(results.map(s => s.set_id)));
     }
+  }
+
+  // ── Bulk Import ───────────────────────────────────────────────────────────
+  // Loops through selected set IDs one at a time, updating progress after each.
+  // Never stops on failure — collects results and shows summary at the end.
+  async function handleBulkImport() {
+    const toImport = results.filter(s => selected.has(s.set_id));
+    if (toImport.length === 0) return;
+
+    const importResults = [];
+
+    setBulkProgress({
+      current: 0,
+      total: toImport.length,
+      currentName: toImport[0].name,
+      done: false,
+      results: [],
+    });
+
+    for (let i = 0; i < toImport.length; i++) {
+      const set = toImport[i];
+
+      // Update progress to show which set we're currently importing
+      setBulkProgress(prev => ({
+        ...prev,
+        current: i + 1,
+        currentName: set.name,
+      }));
+
+      try {
+        await api.sets.create({ tcg_id: set.set_id });
+        importResults.push({ name: set.name, ok: true });
+      } catch (err) {
+        importResults.push({ name: set.name, ok: false, error: err.message });
+      }
+    }
+
+    // All done — show summary
+    setBulkProgress({
+      current: toImport.length,
+      total: toImport.length,
+      currentName: null,
+      done: true,
+      results: importResults,
+    });
+
+    // Notify the dashboard to reload sets
+    onAdded();
   }
 
   // ── Manual Create ─────────────────────────────────────────────────────────
@@ -67,8 +141,13 @@ export default function AddSetModal({ onClose, onAdded }) {
     }
   }
 
+  // ── Derived values ────────────────────────────────────────────────────────
+  const allSelected = results.length > 0 && selected.size === results.length;
+  const progressPct = bulkProgress
+    ? Math.round((bulkProgress.current / bulkProgress.total) * 100)
+    : 0;
+
   return (
-    // Backdrop
     <div
       onClick={onClose}
       style={{
@@ -77,7 +156,6 @@ export default function AddSetModal({ onClose, onAdded }) {
         zIndex: 200, padding: 'var(--space-5)',
       }}
     >
-      {/* Modal */}
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -86,13 +164,13 @@ export default function AddSetModal({ onClose, onAdded }) {
           maxHeight: '80vh', display: 'flex', flexDirection: 'column',
         }}
       >
-        {/* Header */}
+        {/* ── Header ── */}
         <div style={{ padding: 'var(--space-4) var(--space-5)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: '1.1rem' }}>Add Set</h2>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
         </div>
 
-        {/* Tabs */}
+        {/* ── Tabs ── */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 var(--space-5)' }}>
           {[['search', 'Search TCG Database'], ['manual', 'Manual Entry']].map(([t, label]) => (
             <button
@@ -112,16 +190,53 @@ export default function AddSetModal({ onClose, onAdded }) {
           ))}
         </div>
 
-        {/* Body */}
+        {/* ── Body ── */}
         <div style={{ padding: 'var(--space-5)', overflowY: 'auto', flex: 1 }}>
-          {error && (
-            <div style={{ color: 'var(--danger)', marginBottom: 'var(--space-4)', fontSize: '0.875rem' }}>
-              {error}
-            </div>
-          )}
 
-          {tab === 'search' ? (
+          {/* ── Import complete summary ── */}
+          {/* Shown after bulk import finishes instead of the normal search UI */}
+          {bulkProgress?.done ? (
+            <div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', marginBottom: 'var(--space-4)' }}>
+                Import Complete
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-5)' }}>
+                {bulkProgress.results.map((r, i) => (
+                  <div key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
+                    border: `1px solid ${r.ok ? 'var(--success)' : 'var(--danger)'}`,
+                    fontSize: '0.875rem',
+                  }}>
+                    <span>{r.ok ? '✅' : '❌'}</span>
+                    <span style={{ flex: 1, fontWeight: 600 }}>{r.name}</span>
+                    {!r.ok && (
+                      <span style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>
+                        Failed — check backend logs
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span>
+                  {bulkProgress.results.filter(r => r.ok).length} imported ·{' '}
+                  {bulkProgress.results.filter(r => !r.ok).length} failed
+                </span>
+                <button className="btn btn-primary" onClick={onClose}>Close</button>
+              </div>
+            </div>
+
+          ) : tab === 'search' ? (
             <>
+              {error && (
+                <div style={{ color: 'var(--danger)', marginBottom: 'var(--space-4)', fontSize: '0.875rem' }}>
+                  {error}
+                </div>
+              )}
+
+              {/* Search bar */}
               <form onSubmit={handleSearch} style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
                 <input
                   className="input"
@@ -129,44 +244,94 @@ export default function AddSetModal({ onClose, onAdded }) {
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   autoFocus
+                  disabled={!!bulkProgress}
                 />
-                <button className="btn btn-primary" disabled={searching}>
+                <button className="btn btn-primary" disabled={searching || !!bulkProgress}>
                   {searching ? <span className="spinner" style={{ width: 14, height: 14 }} /> : 'Search'}
                 </button>
               </form>
 
+              {/* Select all toggle — only shown when there are results */}
+              {results.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                    />
+                    {allSelected ? 'Deselect all' : 'Select all'}
+                  </label>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    {results.length} result{results.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              )}
+
+              {/* Results list */}
               {results.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                  {results.map(set => (
-                    <div key={set.set_id} style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: 'var(--space-3) var(--space-4)',
-                      background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border)',
-                    }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{set.name}</div>
-                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                          {set.set_code} · {set.card_count || '?'} cards
-                          {set.release_date ? ` · ${set.release_date}` : ''}
+                  {results.map(set => {
+                    const isImported = importedIds.has(set.set_id);
+                    const isSelected = selected.has(set.set_id);
+
+                    return (
+                      <div
+                        key={set.set_id}
+                        onClick={() => toggleSelect(set.set_id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                          padding: 'var(--space-3) var(--space-4)',
+                          background: isSelected ? 'var(--accent-light)' : 'var(--bg-elevated)',
+                          borderRadius: 'var(--radius-md)',
+                          border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                          cursor: 'pointer',
+                          transition: 'background var(--transition), border-color var(--transition)',
+                        }}
+                      >
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(set.set_id)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ flexShrink: 0 }}
+                        />
+
+                        {/* Set info */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{set.name}</span>
+                            {isImported && (
+                              <span style={{
+                                fontSize: '0.65rem', fontWeight: 700,
+                                color: 'var(--success)', background: 'var(--success-light, rgba(34,197,94,0.15))',
+                                border: '1px solid var(--success)',
+                                borderRadius: 'var(--radius-sm)', padding: '1px 6px',
+                                fontFamily: 'var(--font-display)', letterSpacing: '0.03em',
+                              }}>
+                                ✓ In collection
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                            {set.set_code} · {set.card_count || '?'} cards
+                            {set.release_date ? ` · ${set.release_date}` : ''}
+                          </div>
                         </div>
                       </div>
-                      <button
-                        className="btn btn-primary btn-sm"
-                        disabled={importing === set.set_id}
-                        onClick={() => handleImport(set)}
-                      >
-                        {importing === set.set_id
-                          ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Importing…</>
-                          : 'Import'}
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
+
           ) : (
+            /* ── Manual tab ── */
             <form onSubmit={handleManualSave} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+              {error && (
+                <div style={{ color: 'var(--danger)', fontSize: '0.875rem' }}>{error}</div>
+              )}
               <label>
                 <div style={labelStyle}>Set Name *</div>
                 <input className="input" value={manual.name} onChange={e => setManual(m => ({ ...m, name: e.target.value }))} autoFocus required />
@@ -185,6 +350,53 @@ export default function AddSetModal({ onClose, onAdded }) {
             </form>
           )}
         </div>
+
+        {/* ── Footer — bulk import controls ── */}
+        {/* Only shown on search tab when results exist and import isn't done */}
+        {tab === 'search' && results.length > 0 && !bulkProgress?.done && (
+          <div style={{
+            padding: 'var(--space-3) var(--space-5)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex', flexDirection: 'column', gap: 'var(--space-2)',
+          }}>
+
+            {/* Progress bar — shown while importing */}
+            {bulkProgress && !bulkProgress.done && (
+              <>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Importing {bulkProgress.current} of {bulkProgress.total}: <strong>{bulkProgress.currentName}</strong>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', width: `${progressPct}%`,
+                    background: 'var(--accent)', borderRadius: 3,
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+              </>
+            )}
+
+            {/* Import button */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {selected.size > 0
+                  ? `${selected.size} set${selected.size !== 1 ? 's' : ''} selected`
+                  : 'Select sets to import'}
+              </span>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={selected.size === 0 || !!bulkProgress}
+                onClick={handleBulkImport}
+              >
+                {bulkProgress && !bulkProgress.done
+                  ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Importing…</>
+                  : `Import Selected (${selected.size})`}
+              </button>
+            </div>
+
+          </div>
+        )}
+
       </div>
     </div>
   );
