@@ -63,6 +63,11 @@ CREATE TABLE cards (
 -- Index speeds up "give me all cards for set X" queries
 CREATE INDEX idx_cards_set_id ON cards(set_id);
 
+-- Index speeds up card number numeric sort in set view query
+CREATE INDEX idx_cards_number_numeric ON cards (
+  (REGEXP_REPLACE(card_number, '[^0-9]', '', 'g'))
+);
+
 CREATE UNIQUE INDEX idx_cards_tcgtracking_id ON cards(tcgtracking_id) WHERE tcgtracking_id IS NOT NULL;
 
 -- ─── REVERSE HOLOS ───────────────────────────────────────────────────────────
