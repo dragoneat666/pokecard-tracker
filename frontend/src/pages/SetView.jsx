@@ -253,7 +253,7 @@ export default function SetView() {
                     { label: 'Type',         col: null },
                     { label: 'Rarity',       col: 'rarity' },
                     { label: 'Regular',      col: null },
-                    { label: 'Reverse Holo', col: null },
+                    { label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo', col: null },
                     { label: 'Storage',      col: null },
                     { label: 'Condition',    col: null },
                     { label: 'Price',        col: 'price' },
@@ -285,6 +285,7 @@ export default function SetView() {
                   key={card.id}
                   card={card}
                   zebra={idx % 2 === 1}
+                  variantType={setData?.variant_type}
                   onOwnedChange={handleOwnedChange}
                   onReverseOwnedChange={handleReverseOwnedChange}
                   onStorageChange={handleStorageChange}
