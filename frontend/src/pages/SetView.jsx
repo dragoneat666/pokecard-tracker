@@ -167,6 +167,8 @@ export default function SetView() {
     return 0;
   });
 
+  const showVariantCol = setData?.variant_type !== 'none';
+  
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-7)' }}>
@@ -253,13 +255,15 @@ export default function SetView() {
                     { label: 'Type',         col: null },
                     { label: 'Rarity',       col: 'rarity' },
                     { label: 'Regular',      col: null },
-                    { label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo', col: null },
+                    ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo', col: null }] : []),
                     { label: 'Storage',      col: null },
                     { label: 'Condition',    col: null },
                     { label: 'Price',        col: 'price' },
                     { label: 'Total',        col: null },
-                    { label: 'Rev Price',    col: null },
-                    { label: 'Rev Total',    col: null },
+                    ...(showVariantCol ? [
+                      { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price', col: null },
+                      { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total', col: null },
+                    ] : []),
                   ].map(({ label, col }) => (
                     <th
                       key={label}
@@ -286,6 +290,7 @@ export default function SetView() {
                   card={card}
                   zebra={idx % 2 === 1}
                   variantType={setData?.variant_type}
+                  showVariantCol={showVariantCol}
                   onOwnedChange={handleOwnedChange}
                   onReverseOwnedChange={handleReverseOwnedChange}
                   onStorageChange={handleStorageChange}
@@ -294,7 +299,7 @@ export default function SetView() {
               ))}
               {sortedCards.length === 0 && (
                 <tr>
-                  <td colSpan={12} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
+                 <td colSpan={showVariantCol ? 12 : 9} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
                     No cards match the current filter.
                   </td>
                 </tr>
