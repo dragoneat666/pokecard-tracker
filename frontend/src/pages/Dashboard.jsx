@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { formatPrice } from '../rarity.js';
 import AddSetModal from '../components/AddSetModal.jsx';
 import EditSetModal from '../components/EditSetModal.jsx';
+import SetNavigator from '../components/SetNavigator.jsx';
 
 const SET_TYPES = ['All', 'Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
 
@@ -210,9 +211,21 @@ export default function Dashboard() {
           onSaved={() => { setEditingSet(null); loadSets(); }}
         />
       )}
+      
+      {/* ── Set Navigator ── */}
+        {showNavigator && (
+          <SetNavigator
+            groupedSeries={groupedSeries}
+            collapsed={collapsed}
+            onToggleSeries={toggleSeries}
+            onClose={() => setShowNavigator(false)}
+          />
+        )}
     </div>
   );
 }
+
+
 
 // ── Series Section ────────────────────────────────────────────────────────────
 // Renders the divider header + all set rows for one series.
@@ -266,12 +279,13 @@ function SeriesSection({ group, collapsed, onToggle, onNavigate, onEdit }) {
       {!collapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {group.sets.map(set => (
-            <SetRow
-              key={set.id}
-              set={set}
-              onClick={() => onNavigate(set.id)}
-              onEdit={e => { e.stopPropagation(); onEdit(set); }}
-            />
+            <div key={set.id} id={`set-${set.id}`}>
+              <SetRow
+                set={set}
+                onClick={() => onNavigate(set.id)}
+                onEdit={e => { e.stopPropagation(); onEdit(set); }}
+              />
+            </div>
           ))}
         </div>
       )}
