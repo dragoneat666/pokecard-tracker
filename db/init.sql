@@ -65,7 +65,7 @@ CREATE INDEX idx_cards_set_id ON cards(set_id);
 
 -- Index speeds up card number numeric sort in set view query
 CREATE INDEX idx_cards_number_numeric ON cards (
-  (REGEXP_REPLACE(card_number, '[^0-9]', '', 'g'))
+  (NULLIF(REGEXP_REPLACE(card_number, '[^0-9]', '', 'g'), ''))
 );
 
 CREATE UNIQUE INDEX idx_cards_tcgtracking_id ON cards(tcgtracking_id) WHERE tcgtracking_id IS NOT NULL;
@@ -121,13 +121,15 @@ ORDER BY card_id, fetched_at DESC;
 -- ─── DASHBOARD VIEW ──────────────────────────────────────────────────────────
 -- This replaces your Table of Contents sheet.
 -- Aggregates per-set stats in one query — no formula linking required.
-CREATE VIEW set_summary AS
+CREATE OR REPLACE VIEW set_summary AS
 WITH set_denominators AS (
-  SELECT 
+  SELECT
     set_id,
-    MAX(SPLIT_PART(card_number, '/', 2)::INTEGER) as printed_total
+    MAX(NULLIF(REGEXP_REPLACE(SPLIT_PART(card_number, '/', 2), '[^0-9]', '', 'g'), '')::INTEGER) as printed_total
   FROM cards
   WHERE card_number LIKE '%/%'
+    AND REGEXP_REPLACE(SPLIT_PART(card_number, '/', 2), '[^0-9]', '', 'g') != ''
+    AND REGEXP_REPLACE(SPLIT_PART(card_number, '/', 2), '[A-Za-z]', '', 'g') = SPLIT_PART(card_number, '/', 2)
   GROUP BY set_id
 )
 SELECT
@@ -142,50 +144,43 @@ SELECT
   s.language,
   s.set_type,
   s.variant_type,
-
   COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
   COUNT(c.id) AS cards_in_db,
-
-  -- Regular cards: numbered within the printed set total (denominator)
   COUNT(c.id) FILTER (
-    WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
+    WHERE REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g') != ''
+      AND REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[A-Za-z]', '', 'g') = SPLIT_PART(c.card_number, '/', 1)
+      AND NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER
           <= COALESCE(sd.printed_total, s.total_cards, 9999)
   ) AS regular_cards,
-
-  -- Secret cards: numbered above the printed set total
   COUNT(c.id) FILTER (
-    WHERE (REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'))::INTEGER
-          > COALESCE(sd.printed_total, s.total_cards, 9999)
+    WHERE REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[A-Za-z]', '', 'g') != SPLIT_PART(c.card_number, '/', 1)
+      OR (
+        REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g') != ''
+        AND NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER
+            > COALESCE(sd.printed_total, s.total_cards, 9999)
+      )
   ) AS secret_cards,
-
-  -- Reverse holo eligible OR first edition eligible
   COUNT(c.id) FILTER (
     WHERE c.has_reverse_holo = true OR c.has_first_edition = true
   ) AS reverse_holo_count,
-
-  -- Master set total: all cards + variant eligible cards
   COUNT(c.id) + COUNT(c.id) FILTER (
     WHERE c.has_reverse_holo = true OR c.has_first_edition = true
   ) AS master_total,
-
-  -- Master set owned: regular owned + reverse holos owned
   COUNT(c.id) FILTER (WHERE c.owned >= 1) +
   COUNT(rh.id) FILTER (WHERE rh.owned >= 1) AS master_owned,
-
   ROUND(
     COUNT(c.id) FILTER (WHERE c.owned >= 1)::NUMERIC
     / NULLIF(s.total_cards, 0) * 100
   , 1) AS completion_pct,
-
   COALESCE(SUM(cp.market_price) FILTER (WHERE c.owned >= 1), 0) AS total_value,
   COALESCE(SUM(cp.reverse_holo_price) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
-
 FROM sets s
 LEFT JOIN set_denominators sd ON sd.set_id = s.id
 LEFT JOIN cards c ON c.set_id = s.id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
-GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url, s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type, sd.printed_total
+GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
+         s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
 
 -- ─── SERIES MAP ───────────────────────────────────────────────────────────────
