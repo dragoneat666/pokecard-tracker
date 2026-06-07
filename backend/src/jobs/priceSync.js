@@ -200,7 +200,7 @@ export async function importSetCards(tcgSetId) {
     tcgData.set_name,
     pokeSet?.series || null,
     tcgCards.length,
-    pokeSet ? parsePokeWalletDate(pokeSet.release_date) : (tcgSet?.published_on || null),
+    tcgSet?.published_on || (pokeSet ? parsePokeWalletDate(pokeSet.release_date) : null),
     logoUrl,
     tcgSet?.abbreviation || pokeSet?.set_code || null,
     symbolUrl,
