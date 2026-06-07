@@ -8,6 +8,7 @@ import setsRouter    from './routes/sets.js';
 import cardsRouter   from './routes/cards.js';
 import pricesRouter  from './routes/prices.js';
 import importRouter  from './routes/import.js';
+import backupRouter, { startBackupSchedule } from './routes/backup.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -29,6 +30,7 @@ app.use('/api/sets',   setsRouter);
 app.use('/api/cards',  cardsRouter);
 app.use('/api/prices', pricesRouter);
 app.use('/api/import', importRouter);
+app.use('/api/backup', backupRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -46,4 +48,5 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on port ${PORT}`);
   startPriceSync();
+  startBackupSchedule();
 });
