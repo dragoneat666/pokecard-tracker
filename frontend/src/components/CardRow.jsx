@@ -11,7 +11,7 @@ import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, variantType, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
+const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
 
@@ -120,18 +120,20 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, onOwnedChange,
       </td>
 
       {/* Reverse holo / First edition checkbox */}
-      <td style={tdStyle}>
-        {(variantType === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) ? (
-          <Checkbox
-            checked={card.reverse_owned >= 1}
-            onClick={handleReverseClick}
-            title={variantType === 'first_edition' ? 'Own first edition' : 'Own reverse holo'}
-            color="var(--rarity-holo)"
-          />
-        ) : (
-          <span style={{ color: 'var(--text-muted)' }}>—</span>
-        )}
-      </td>
+      {showVariantCol && (
+        <td style={tdStyle}>
+          {(variantType === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) ? (
+            <Checkbox
+              checked={card.reverse_owned >= 1}
+              onClick={handleReverseClick}
+              title={variantType === 'first_edition' ? 'Own first edition' : 'Own reverse holo'}
+              color="var(--rarity-holo)"
+            />
+          ) : (
+            <span style={{ color: 'var(--text-muted)' }}>—</span>
+          )}
+        </td>
+      )}
 
       {/* Storage dropdown */}
       <td style={tdStyle}>
@@ -178,19 +180,23 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, onOwnedChange,
         </span>
       </td>
 
-      {/* Reverse holo price */}
-      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)' }}>
-        <span style={{ color: card.reverse_holo_price ? 'var(--rarity-holo)' : 'var(--text-muted)' }}>
-          {formatPrice(card.reverse_holo_price)}
-        </span>
-      </td>
+      {showVariantCol && (
+        <>
+          {/* Reverse holo price */}
+          <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)' }}>
+            <span style={{ color: card.reverse_holo_price ? 'var(--rarity-holo)' : 'var(--text-muted)' }}>
+              {formatPrice(card.reverse_holo_price)}
+            </span>
+          </td>
 
-      {/* Reverse holo total */}
-      <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)' }}>
-        <span style={{ color: revTotal ? 'var(--rarity-holo)' : 'var(--text-muted)' }}>
-          {formatPrice(revTotal)}
-        </span>
-      </td>
+          {/* Reverse holo total */}
+          <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)' }}>
+            <span style={{ color: revTotal ? 'var(--rarity-holo)' : 'var(--text-muted)' }}>
+              {formatPrice(revTotal)}
+            </span>
+          </td>
+        </>
+      )}
     </tr>
   );
 });
