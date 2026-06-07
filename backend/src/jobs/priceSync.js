@@ -78,6 +78,46 @@ function parsePokeWalletDate(dateStr) {
   }
 }
 
+// ─── SERIES RESOLVER ─────────────────────────────────────────────────────────
+// Checks series_map table first. If no entry exists, tries to auto-detect
+// from the set name prefix (e.g. "ME04: Chaos Rising" → "ME" → "Mega Evolution").
+// Saves the result to series_map so reimports never overwrite it.
+const PREFIX_SERIES_MAP = {
+  'XY':   'XY',
+  'SM':   'Sun & Moon',
+  'SWSH': 'Sword & Shield',
+  'SV':   'Scarlet & Violet',
+  'ME':   'Mega Evolution',
+};
+
+async function resolveSeriesForSet(setCode, setName) {
+  if (!setCode) return null;
+
+  // Step 1: existing table entry wins — never overwrite
+  const existing = await query(
+    'SELECT series FROM series_map WHERE set_code = $1',
+    [setCode]
+  );
+  if (existing.rows.length > 0) return existing.rows[0].series;
+
+  // Step 2: auto-detect from "XX##: Name" pattern
+  let detectedSeries = null;
+  if (setName?.includes(':')) {
+    const prefix = setName.split(':')[0].match(/^[A-Z]+/)?.[0] || '';
+    detectedSeries = PREFIX_SERIES_MAP[prefix] || null;
+  }
+
+  // Step 3: save result so reimports skip detection next time
+  await query(
+    `INSERT INTO series_map (set_code, series, is_manual)
+     VALUES ($1, $2, false)
+     ON CONFLICT (set_code) DO NOTHING`,
+    [setCode, detectedSeries || 'Unknown']
+  );
+
+  return detectedSeries;
+}
+
 // ─── SEARCH SETS ──────────────────────────────────────────────────────────────
 // Called from POST /api/sets/search-tcg
 // Uses TCGTracking search which is fast and accurate
@@ -183,7 +223,7 @@ export async function importSetCards(tcgSetId) {
   `, [
     String(tcgSetId),
     tcgData.set_name,
-    pokeSet?.series || null,
+    await resolveSeriesForSet(tcgSet?.abbreviation || pokeSet?.set_code, tcgData.set_name),
     tcgCards.length,
     tcgSet?.published_on || (pokeSet ? parsePokeWalletDate(pokeSet.release_date) : null),
     logoUrl,
