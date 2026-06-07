@@ -124,9 +124,7 @@ export async function importSetCards(tcgSetId) {
   try {
     const tcgdexSets = await fetch('https://api.tcgdex.net/v2/en/sets').then(r => r.json());
     const tcgdexSet = tcgdexSets.find(s =>
-      s.name.toLowerCase() === tcgData.set_name.toLowerCase() ||
-      s.name.toLowerCase().includes(tcgData.set_name.toLowerCase()) ||
-      tcgData.set_name.toLowerCase().includes(s.name.toLowerCase())
+      s.name.toLowerCase() === tcgData.set_name.toLowerCase()
     );
     if (tcgdexSet?.logo) {
       logoUrl = tcgdexSet.logo + '.png';
