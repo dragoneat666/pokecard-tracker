@@ -7,7 +7,7 @@
 // Import flow (per set):
 //   Step 1: TCGTracking search  — find set ID and symbol URL
 //   Step 2: TCGTracking cards   — full card list with reverse holo flags and images
-//   Step 3: PokéWallet cards    — paginated card list for type/stage/tcg_card_id
+//   Step 3: PokéWallet cards
 //   Step 4: PokéWallet sets     — set metadata (release_date, set_code, language, series)
 //   Step 5: Insert set into DB
 //   Step 6: Insert cards merging both sources
@@ -232,20 +232,12 @@ export async function importSetCards(tcgSetId) {
     const hasFirstEdition = tcgCard.cardtrader?.[0]?.properties
       ?.some(p => p.name === 'first_edition') ?? null;
 
-    // Check if this tcg_card_id is already used by another card
-    // If so, store null to avoid unique constraint violation
-    let tcgCardId = pokeCard.tcg_card_id || null;
-    if (tcgCardId) {
-      const existing = await query('SELECT id FROM cards WHERE tcg_card_id = $1 AND set_id != $2', [tcgCardId, set.id]);
-      if (existing.rows.length > 0) tcgCardId = null;
-    }
-
     await query(`
       INSERT INTO cards (
-        set_id, tcg_card_id, tcgtracking_id, card_number, name,
+        set_id, tcgtracking_id, card_number, name,
         pokemon_type, rarity, has_reverse_holo, has_first_edition, image_url, stage
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (tcgtracking_id) WHERE tcgtracking_id IS NOT NULL DO UPDATE SET
         card_number      = EXCLUDED.card_number,
         name             = EXCLUDED.name,
@@ -258,7 +250,6 @@ export async function importSetCards(tcgSetId) {
         tcgtracking_id   = EXCLUDED.tcgtracking_id
     `, [
       set.id,
-      tcgCardId,
       tcgCard.id,
       tcgCard.number,
       cardName,
