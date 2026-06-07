@@ -1,5 +1,5 @@
 // pages/Dashboard.jsx — Collection overview (Table of Contents)
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { formatPrice } from '../rarity.js';
@@ -8,6 +8,32 @@ import EditSetModal from '../components/EditSetModal.jsx';
 
 const SET_TYPES = ['All', 'Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
 
+// ── Group a flat set array into [{ series, sets[] }, ...] newest-first ────────
+// reduce() walks the array once. For each set, it checks if a bucket for that
+// series already exists in `acc` (accumulator). If not, it creates one. Then
+// it pushes the set into the right bucket. Object.values() turns the buckets
+// object into an array at the end.
+function groupBySeries(sets) {
+  const buckets = sets.reduce((acc, set) => {
+    const key = set.series || 'Unknown';
+    if (!acc[key]) acc[key] = { series: key, sets: [] };
+    acc[key].sets.push(set);
+    return acc;
+  }, {});
+
+  // Sort each bucket newest-first by release_date
+  Object.values(buckets).forEach(bucket => {
+    bucket.sets.sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+  });
+
+  // Sort the series themselves: newest release_date in any set wins
+  return Object.values(buckets).sort((a, b) => {
+    const aDate = Math.max(...a.sets.map(s => new Date(s.release_date)));
+    const bDate = Math.max(...b.sets.map(s => new Date(s.release_date)));
+    return bDate - aDate;
+  });
+}
+
 export default function Dashboard() {
   const [sets, setSets]             = useState([]);
   const [loading, setLoading]       = useState(true);
@@ -15,7 +41,22 @@ export default function Dashboard() {
   const [showAdd, setShowAdd]       = useState(false);
   const [editingSet, setEditingSet] = useState(null);
   const [typeFilter, setTypeFilter] = useState('All');
+
+  // collapsed is a Set of series names that are currently collapsed.
+  // The () => lazy initializer reads from localStorage once on first render.
+  // JSON.parse turns the stored string back into an array, then `new Set()`
+  // wraps it so we can use .has(), .add(), .delete() efficiently.
+  const [collapsed, setCollapsed] = useState(
+    () => new Set(JSON.parse(localStorage.getItem('collapsedSeries') || '[]'))
+  );
+
   const navigate = useNavigate();
+
+  // Any time collapsed changes, save it to localStorage.
+  // We spread the Set into an array first because JSON.stringify can't handle Set directly.
+  useEffect(() => {
+    localStorage.setItem('collapsedSeries', JSON.stringify([...collapsed]));
+  }, [collapsed]);
 
   useEffect(() => { loadSets(); }, []);
 
@@ -35,11 +76,33 @@ export default function Dashboard() {
     ? sets
     : sets.filter(s => s.set_type === typeFilter);
 
+  // Group the filtered sets into series buckets
+  const groupedSeries = groupBySeries(filteredSets);
+
   const totals = sets.reduce((acc, s) => ({
-    sets:   acc.sets + 1,
-    owned:  acc.owned  + (parseInt(s.cards_owned) || 0),
-    value:  acc.value  + parseFloat(s.grand_total_value || 0),
+    sets:  acc.sets + 1,
+    owned: acc.owned + (parseInt(s.cards_owned) || 0),
+    value: acc.value + parseFloat(s.grand_total_value || 0),
   }), { sets: 0, owned: 0, value: 0 });
+
+  // Toggle one series open/closed
+  function toggleSeries(seriesName) {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(seriesName)) next.delete(seriesName);
+      else next.add(seriesName);
+      return next;
+    });
+  }
+
+  // If anything is expanded, collapse all. Otherwise expand all.
+  function toggleAll() {
+    const allSeries = groupedSeries.map(g => g.series);
+    const anyExpanded = allSeries.some(s => !collapsed.has(s));
+    setCollapsed(anyExpanded ? new Set(allSeries) : new Set());
+  }
+
+  const allCollapsed = groupedSeries.length > 0 && groupedSeries.every(g => collapsed.has(g.series));
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-7)' }}>
@@ -64,7 +127,12 @@ export default function Dashboard() {
             {totals.sets} sets · {totals.owned.toLocaleString()} cards owned · {formatPrice(totals.value)} total value
           </span>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Set</button>
+        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={toggleAll}>
+            {allCollapsed ? '▶ Expand All' : '▼ Collapse All'}
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Add Set</button>
+        </div>
       </div>
 
       {/* ── Type filter buttons ── */}
@@ -85,7 +153,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* ── Set list ── */}
+      {/* ── Grouped set list ── */}
       {filteredSets.length === 0 ? (
         <div className="panel" style={{ textAlign: 'center', padding: 'var(--space-7)', color: 'var(--text-secondary)' }}>
           <div style={{ fontSize: '2rem', marginBottom: 'var(--space-3)' }}>📦</div>
@@ -97,13 +165,15 @@ export default function Dashboard() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          {filteredSets.map(set => (
-            <SetRow
-              key={set.id}
-              set={set}
-              onClick={() => navigate(`/sets/${set.id}`)}
-              onEdit={e => { e.stopPropagation(); setEditingSet(set); }}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {groupedSeries.map(group => (
+            <SeriesSection
+              key={group.series}
+              group={group}
+              collapsed={collapsed.has(group.series)}
+              onToggle={() => toggleSeries(group.series)}
+              onNavigate={id => navigate(`/sets/${id}`)}
+              onEdit={set => setEditingSet(set)}
             />
           ))}
         </div>
@@ -124,6 +194,71 @@ export default function Dashboard() {
           onClose={() => setEditingSet(null)}
           onSaved={() => { setEditingSet(null); loadSets(); }}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Series Section ────────────────────────────────────────────────────────────
+// Renders the divider header + all set rows for one series.
+// Props:
+//   group     — { series: string, sets: [] }
+//   collapsed — boolean, whether this section is currently hidden
+//   onToggle  — called when the header is clicked
+//   onNavigate, onEdit — passed through to SetRow
+function SeriesSection({ group, collapsed, onToggle, onNavigate, onEdit }) {
+  return (
+    <div id={`series-${group.series.replace(/\s+/g, '-')}`}>
+
+      {/* ── Series divider header ── */}
+      {/* The lines on either side are done with flex: the line is flex:1 which
+          makes it stretch to fill available space. The title sits between them. */}
+      <div
+        onClick={onToggle}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-3)',
+          marginBottom: collapsed ? 0 : 'var(--space-3)',
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{
+          fontSize: '1.4rem',
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          color: 'var(--text-secondary)',
+          whiteSpace: 'nowrap',
+        }}>
+          {group.series}
+        </span>
+        <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        <span style={{
+          color: 'var(--text-muted)',
+          fontSize: '0.85rem',
+          transition: 'transform 0.2s ease',
+          transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+        }}>
+          ▼
+        </span>
+      </div>
+
+      {/* ── Set rows — hidden when collapsed ── */}
+      {/* We render nothing when collapsed rather than hiding with CSS.
+          This is simpler and fine since there's no animation needed here. */}
+      {!collapsed && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          {group.sets.map(set => (
+            <SetRow
+              key={set.id}
+              set={set}
+              onClick={() => onNavigate(set.id)}
+              onEdit={e => { e.stopPropagation(); onEdit(set); }}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
