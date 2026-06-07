@@ -1,25 +1,11 @@
-// App.jsx — Top-level layout and routing
-//
-// react-router-dom gives us client-side routing — navigating between pages
-// without a full browser reload. The URL changes, React swaps the component,
-// but the page never refreshes.
-//
-// Routes:
-//   /              → Dashboard (your Table of Contents)
-//   /sets/:id      → SetView (the per-set card table)
-//   /import        → Import (Excel upload)
-
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import Dashboard from './pages/Dashboard.jsx';
 import SetView   from './pages/SetView.jsx';
 import Import    from './pages/Import.jsx';
+import Backup    from './pages/Backup.jsx';
 
 function Layout() {
   const location = useLocation();
-
-  // Extract set name from state if navigating from Dashboard
-  // (so the breadcrumb can show the name without an extra API call)
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <nav style={{
@@ -34,7 +20,6 @@ function Layout() {
         top: 0,
         zIndex: 100,
       }}>
-        {/* Logo / Home link */}
         <NavLink to="/" style={{
           fontFamily: 'var(--font-display)',
           fontWeight: 800,
@@ -48,30 +33,26 @@ function Layout() {
         }}>
           ⚡ PokeCard Tracker
         </NavLink>
-
-        <NavLink to="/"      style={navStyle} end>Collection</NavLink>
+        <NavLink to="/"       style={navStyle} end>Collection</NavLink>
         <NavLink to="/import" style={navStyle}>Import</NavLink>
-
-        {/* Spacer */}
+        <NavLink to="/backup" style={navStyle}>Backup</NavLink>
         <div style={{ flex: 1 }} />
-
         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
           Denflix
         </span>
       </nav>
-
       <main style={{ flex: 1, padding: 'var(--space-5)' }}>
         <Routes>
           <Route path="/"         element={<Dashboard />} />
           <Route path="/sets/:id" element={<SetView />} />
           <Route path="/import"   element={<Import />} />
+          <Route path="/backup"   element={<Backup />} />
         </Routes>
       </main>
     </div>
   );
 }
 
-// Active nav link gets the accent color; inactive stays secondary
 function navStyle({ isActive }) {
   return {
     fontFamily: 'var(--font-display)',
