@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router
 import Dashboard from './pages/Dashboard.jsx';
 import SetView   from './pages/SetView.jsx';
 import Import    from './pages/Import.jsx';
-import Backup    from './pages/Backup.jsx';
+import Admin     from './pages/Admin.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -35,7 +35,7 @@ function Layout() {
         </NavLink>
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
         <NavLink to="/import" style={navStyle}>Import</NavLink>
-        <NavLink to="/backup" style={navStyle}>Backup</NavLink>
+        <NavLink to="/admin" style={navStyle}>Admin</NavLink>
         <div style={{ flex: 1 }} />
         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
           Denflix
@@ -46,7 +46,7 @@ function Layout() {
           <Route path="/"         element={<Dashboard />} />
           <Route path="/sets/:id" element={<SetView />} />
           <Route path="/import"   element={<Import />} />
-          <Route path="/backup"   element={<Backup />} />
+          <Route path="/admin"    element={<Admin />} />
         </Routes>
       </main>
     </div>
