@@ -1,26 +1,19 @@
 // pages/Dashboard.jsx — Collection overview (Table of Contents)
-//
-// Redesigned as a data-dense table layout with:
-//   - Set logo + symbol images
-//   - Regular/Secret/Total card counts
-//   - Master set progress bar
-//   - Set value
-//   - Filter by set type
-//   - Sorted by release date descending
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { formatPrice } from '../rarity.js';
 import AddSetModal from '../components/AddSetModal.jsx';
+import EditSetModal from '../components/EditSetModal.jsx';
 
 const SET_TYPES = ['All', 'Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
 
 export default function Dashboard() {
-  const [sets, setSets]         = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
-  const [showAdd, setShowAdd]   = useState(false);
+  const [sets, setSets]             = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState(null);
+  const [showAdd, setShowAdd]       = useState(false);
+  const [editingSet, setEditingSet] = useState(null);
   const [typeFilter, setTypeFilter] = useState('All');
   const navigate = useNavigate();
 
@@ -38,7 +31,6 @@ export default function Dashboard() {
     }
   }
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
   const filteredSets = typeFilter === 'All'
     ? sets
     : sets.filter(s => s.set_type === typeFilter);
@@ -107,7 +99,12 @@ export default function Dashboard() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {filteredSets.map(set => (
-            <SetRow key={set.id} set={set} onClick={() => navigate(`/sets/${set.id}`)} />
+            <SetRow
+              key={set.id}
+              set={set}
+              onClick={() => navigate(`/sets/${set.id}`)}
+              onEdit={e => { e.stopPropagation(); setEditingSet(set); }}
+            />
           ))}
         </div>
       )}
@@ -119,12 +116,21 @@ export default function Dashboard() {
           onAdded={() => { setShowAdd(false); loadSets(); }}
         />
       )}
+
+      {/* ── Edit Set Modal ── */}
+      {editingSet && (
+        <EditSetModal
+          set={editingSet}
+          onClose={() => setEditingSet(null)}
+          onSaved={() => { setEditingSet(null); loadSets(); }}
+        />
+      )}
     </div>
   );
 }
 
 // ── Set Row ───────────────────────────────────────────────────────────────────
-function SetRow({ set, onClick }) {
+function SetRow({ set, onClick, onEdit }) {
   const regularCards  = set.regular_cards || 0;
   const secretCards   = set.secret_cards  || 0;
   const cardsInDb     = set.cards_in_db   || 0;
@@ -196,7 +202,7 @@ function SetRow({ set, onClick }) {
             }}>
               {set.set_code}
             </span>
-          )} 
+          )}
         </div>
         {releaseDate && (
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -243,6 +249,13 @@ function SetRow({ set, onClick }) {
 
       {/* ── Section 5: Value ── */}
       <div style={{ ...sectionStyle, textAlign: 'right', minWidth: 100 }}>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onEdit}
+          style={{ marginBottom: 6, fontSize: '0.7rem', alignSelf: 'flex-end' }}
+        >
+          ✎ Edit
+        </button>
         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
           Set Value
         </div>
