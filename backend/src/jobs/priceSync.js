@@ -232,7 +232,13 @@ export async function importSetCards(tcgSetId) {
     const hasFirstEdition = tcgCard.cardtrader?.[0]?.properties
       ?.some(p => p.name === 'first_edition') ?? null;
 
-    const tcgCardId = pokeCard.tcg_card_id || null;
+    // Check if this tcg_card_id is already used by another card
+    // If so, store null to avoid unique constraint violation
+    let tcgCardId = pokeCard.tcg_card_id || null;
+    if (tcgCardId) {
+      const existing = await query('SELECT id FROM cards WHERE tcg_card_id = $1 AND set_id != $2', [tcgCardId, set.id]);
+      if (existing.rows.length > 0) tcgCardId = null;
+    }
 
     await query(`
       INSERT INTO cards (
