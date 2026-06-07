@@ -11,7 +11,7 @@ import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
+const CardRow = memo(function CardRow({ card, zebra, variantType, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
 
@@ -119,13 +119,13 @@ const CardRow = memo(function CardRow({ card, zebra, onOwnedChange, onReverseOwn
         </div>
       </td>
 
-      {/* Reverse holo checkbox */}
+      {/* Reverse holo / First edition checkbox */}
       <td style={tdStyle}>
-        {card.has_reverse_holo ? (
+        {(variantType === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) ? (
           <Checkbox
             checked={card.reverse_owned >= 1}
             onClick={handleReverseClick}
-            title="Own reverse holo"
+            title={variantType === 'first_edition' ? 'Own first edition' : 'Own reverse holo'}
             color="var(--rarity-holo)"
           />
         ) : (
