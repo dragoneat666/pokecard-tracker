@@ -119,22 +119,7 @@ export async function importSetCards(tcgSetId) {
   const tcgSet = searchData.sets?.find(s => String(s.id) === String(tcgSetId));
   const symbolUrl = tcgSet?.set_symbol_url || null;
 
-  // Fetch TCGdex logo URL — non-fatal if it fails or set not found
-  let logoUrl = null;
-  try {
-    const tcgdexSets = await fetch('https://api.tcgdex.net/v2/en/sets').then(r => r.json());
-    const tcgdexSet = tcgdexSets.find(s =>
-      s.name.toLowerCase() === tcgData.set_name.toLowerCase()
-    );
-    if (tcgdexSet?.logo) {
-      logoUrl = tcgdexSet.logo + '.png';
-      console.log(`   TCGdex: Found logo for "${tcgdexSet.name}"`);
-    } else {
-      console.log(`   TCGdex: No logo found for "${tcgData.set_name}"`);
-    }
-  } catch (err) {
-    console.log(`   TCGdex logo fetch failed (non-fatal): ${err.message}`);
-  }
+  const logoUrl = null; // Logo set manually via Set Edit Modal
 
   // ── Step 2: PokéWallet — set metadata + card types/stages ─────────────────
   console.log('   Step 2: Fetching set metadata from PokéWallet...');
