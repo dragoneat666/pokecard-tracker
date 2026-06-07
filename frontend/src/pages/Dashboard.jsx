@@ -37,7 +37,7 @@ export default function Dashboard() {
 
   const totals = sets.reduce((acc, s) => ({
     sets:   acc.sets + 1,
-    owned:  acc.owned  + (s.cards_owned || 0),
+    owned:  acc.owned  + (parseInt(s.cards_owned) || 0),
     value:  acc.value  + parseFloat(s.grand_total_value || 0),
   }), { sets: 0, owned: 0, value: 0 });
 
