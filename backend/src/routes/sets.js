@@ -103,9 +103,15 @@ router.get('/:id', async (req, res, next) => {
       LEFT JOIN current_prices cp ON cp.card_id = c.id
       WHERE c.set_id = $1
       ORDER BY
-        -- Sort by card number numerically where possible, fall back to text sort
-        -- This handles "001", "002"... "151" correctly
-        (REGEXP_REPLACE(c.card_number, '[^0-9]', '', 'g'))::INTEGER ASC NULLS LAST
+        -- Pure numeric cards first (no letters in the number before the slash)
+        CASE WHEN REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[0-9]', '', 'g') = ''
+          THEN 0 ELSE 1
+        END ASC,
+        -- Within pure numeric: sort by the number itself
+        NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER ASC NULLS LAST,
+        -- Within letter-prefix cards: sort by prefix alphabetically, then number
+        REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[0-9]', '', 'g') ASC,
+        NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER ASC NULLS LAST
     `, [id]);
 
     res.json({
