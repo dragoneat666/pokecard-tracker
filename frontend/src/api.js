@@ -75,4 +75,13 @@ export const api = {
     restore:  (formData) => fetch('/api/backup/restore', { method: 'POST', body: formData }).then(r => r.json()),
     download: (filename) => window.open(`/api/backup/download/${filename}`, '_blank'),
   },
+  // ── Admin ─────────────────────────────────────────────────────────────────
+admin: {
+  seriesMap: {
+    list:   ()                     => request('GET',    '/admin/series-map'),
+    add:    (set_code, series)     => request('POST',   '/admin/series-map', { set_code, series }),
+    update: (set_code, data)       => request('PATCH',  `/admin/series-map/${set_code}`, data),
+    delete: (set_code)             => request('DELETE', `/admin/series-map/${set_code}`),
+  },
+},
 };
