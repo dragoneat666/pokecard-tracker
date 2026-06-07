@@ -68,4 +68,11 @@ export const api = {
     excel: (formData) => fetch(`${BASE}/import`, { method: 'POST', body: formData })
                           .then(r => r.json()),
   },
+  // ── Backup ────────────────────────────────────────────────────────────────
+  backup: {
+    run:      ()         => request('POST', '/backup/run'),
+    list:     ()         => request('GET',  '/backup/list'),
+    restore:  (formData) => fetch('/api/backup/restore', { method: 'POST', body: formData }).then(r => r.json()),
+    download: (filename) => window.open(`/api/backup/download/${filename}`, '_blank'),
+  },
 };
