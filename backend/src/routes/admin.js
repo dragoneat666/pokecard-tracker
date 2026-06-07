@@ -36,6 +36,13 @@ router.post('/series-map', async (req, res, next) => {
        RETURNING *`,
       [set_code.trim().toUpperCase(), series.trim()]
     );
+
+    // Sync to any sets already in the DB with this set_code
+    await query(
+      'UPDATE sets SET series = $1 WHERE set_code = $2',
+      [series.trim(), set_code.trim().toUpperCase()]
+    );
+
     res.status(201).json(rows[0]);
   } catch (err) {
     next(err);
@@ -56,6 +63,15 @@ router.patch('/series-map/:code', async (req, res, next) => {
       [series ?? null, is_manual ?? null, code]
     );
     if (rows.length === 0) return res.status(404).json({ error: 'Set code not found' });
+
+    // Sync the change to any sets already in the DB with this set_code
+    if (series) {
+      await query(
+        'UPDATE sets SET series = $1 WHERE set_code = $2',
+        [series.trim(), code]
+      );
+    }
+
     res.json(rows[0]);
   } catch (err) {
     next(err);
