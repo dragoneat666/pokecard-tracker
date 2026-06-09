@@ -24,13 +24,25 @@ function groupBySeries(sets) {
 
   // Sort each bucket newest-first by release_date
   Object.values(buckets).forEach(bucket => {
-    bucket.sets.sort((a, b) => new Date(b.release_date) - new Date(a.release_date));
+    bucket.sets.sort((a, b) => {
+      // Promo sets always sort to the bottom of their series group
+      const aPromo = a.set_type === 'Promo' ? 1 : 0;
+      const bPromo = b.set_type === 'Promo' ? 1 : 0;
+      if (aPromo !== bPromo) return aPromo - bPromo;
+      // Within non-promo or within promo: newest first
+      return new Date(b.release_date) - new Date(a.release_date);
+    });
   });
 
   // Sort the series themselves: newest release_date in any set wins
   return Object.values(buckets).sort((a, b) => {
-    const aDate = Math.max(...a.sets.map(s => new Date(s.release_date)));
-    const bDate = Math.max(...b.sets.map(s => new Date(s.release_date)));
+    // Exclude promo sets from series date calculation to avoid bad dates
+    // pulling a whole series out of order
+    const nonPromo = sets => sets.filter(s => s.set_type !== 'Promo');
+    const aSets = nonPromo(a.sets).length > 0 ? nonPromo(a.sets) : a.sets;
+    const bSets = nonPromo(b.sets).length > 0 ? nonPromo(b.sets) : b.sets;
+    const aDate = Math.max(...aSets.map(s => new Date(s.release_date)));
+    const bDate = Math.max(...bSets.map(s => new Date(s.release_date)));
     return bDate - aDate;
   });
 }
