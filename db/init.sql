@@ -20,6 +20,8 @@ CREATE TABLE sets (
   language      TEXT,
   set_type      TEXT NOT NULL DEFAULT 'Main',
   variant_type  TEXT NOT NULL DEFAULT 'reverse_holo',
+  is_parent     BOOLEAN NOT NULL DEFAULT false,
+  parent_set_id INT REFERENCES sets(id),
   created_at    TIMESTAMPTZ DEFAULT NOW() -- Timestamp with timezone
 );
 
