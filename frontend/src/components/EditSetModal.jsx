@@ -30,6 +30,14 @@ export default function EditSetModal({ set, onClose, onSaved }) {
     api.sets.parentSets().then(setParentSets).catch(() => {});
   }, []);
 
+  const [childSets, setChildSets] = useState([]);
+
+  useEffect(() => {
+    if (set.is_parent) {
+      api.sets.children(set.id).then(setChildSets).catch(() => {});
+    }
+  }, [set.id, set.is_parent]);
+
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
   }
@@ -125,6 +133,27 @@ export default function EditSetModal({ set, onClose, onSaved }) {
               This set has subsets (e.g. Generations + Radiant Collection)
             </span>
           </label>
+          
+          {/* Show existing subsets if this is a parent */}
+          {form.is_parent && childSets.length > 0 && (
+            <div style={{
+              padding: 'var(--space-3)',
+              background: 'var(--bg-elevated)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border)',
+            }}>
+              <div style={labelStyle}>Subsets</div>
+              {childSets.map(child => (
+                <div key={child.id} style={{
+                  fontSize: '0.875rem',
+                  color: 'var(--text-secondary)',
+                  padding: '2px 0',
+                }}>
+                  — {child.name}
+                </div>
+              ))}
+            </div>
+          )}
           
           {/* Parent set dropdown — only show if this set is not itself a parent */}
           {!form.is_parent && (
