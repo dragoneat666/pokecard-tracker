@@ -11,9 +11,9 @@ router.get('/', async (_req, res, next) => {
     const { rows } = await query(`
       SELECT
         id, name, series, total_cards, release_date, logo_url, set_code,
-        symbol_url, language, set_type, variant_type, cards_owned, cards_in_db,
-        regular_cards, secret_cards, reverse_holo_count, master_total,
-        master_owned, completion_pct, total_value, reverse_holo_value,
+        symbol_url, language, set_type, variant_type, is_parent, parent_set_id,
+        cards_owned, cards_in_db, regular_cards, secret_cards, reverse_holo_count,
+        master_total, master_owned, completion_pct, total_value, reverse_holo_value,
         (total_value + reverse_holo_value) AS grand_total_value
       FROM set_summary
       ORDER BY release_date DESC NULLS LAST
