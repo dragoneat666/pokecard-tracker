@@ -30,6 +30,7 @@ export default function SetView() {
   const [sortCol, setSortCol]       = useState('number');
   const [sortDir, setSortDir]       = useState('asc');
   const [quickFilter, setQuickFilter] = useState('all');
+  const [childSets, setChildSets]     = useState([]);
 
   const { toast, showToast } = useToast();
 
@@ -40,6 +41,7 @@ export default function SetView() {
       const data = await api.sets.get(id);
       setSetData(data.set);
       setCards(data.cards);
+      setChildSets(data.childSets || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -341,6 +343,69 @@ export default function SetView() {
         </div>
       </div>
 
+      {/* ── Child Set Sections ── */}
+      {childSets.map(({ set: childSet, cards: childCards }) => (
+        <div key={childSet.id} style={{ marginTop: 'var(--space-6)' }}>
+          {/* Child set divider header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+            marginBottom: 'var(--space-3)',
+          }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={{
+              fontSize: '1.1rem',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap',
+            }}>
+              {childSet.name}
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
+
+          {/* Child card table */}
+          <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+                    {[
+                      { label: '#' }, { label: 'Name' }, { label: 'Type' },
+                      { label: 'Rarity' }, { label: 'Regular' },
+                      ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo' }] : []),
+                      { label: 'Storage' }, { label: 'Condition' },
+                      { label: 'Price' }, { label: 'Total' },
+                      ...(showVariantCol ? [
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total' },
+                      ] : []),
+                    ].map(({ label }) => (
+                      <th key={label} style={{ ...thStyle, color: 'var(--text-secondary)' }}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {childCards.map((card, idx) => (
+                    <CardRow
+                      key={card.id}
+                      card={card}
+                      zebra={idx % 2 === 1}
+                      variantType={setData?.variant_type}
+                      showVariantCol={showVariantCol}
+                      onOwnedChange={handleOwnedChange}
+                      onReverseOwnedChange={handleReverseOwnedChange}
+                      onStorageChange={handleStorageChange}
+                      onConditionChange={handleConditionChange}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ))}
+      
       {/* ── Toast ── */}
       {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
     </div>
