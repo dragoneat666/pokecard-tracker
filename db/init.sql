@@ -123,7 +123,7 @@ ORDER BY card_id, fetched_at DESC;
 -- ─── DASHBOARD VIEW ──────────────────────────────────────────────────────────
 -- This replaces your Table of Contents sheet.
 -- Aggregates per-set stats in one query — no formula linking required.
-CREATE OR REPLACE VIEW set_summary AS
+CREATE VIEW set_summary AS
 WITH set_denominators AS (
   SELECT
     set_id,
@@ -135,17 +135,9 @@ WITH set_denominators AS (
   GROUP BY set_id
 )
 SELECT
-  s.id,
-  s.name,
-  s.series,
-  s.total_cards,
-  s.release_date,
-  s.logo_url,
-  s.set_code,
-  s.symbol_url,
-  s.language,
-  s.set_type,
-  s.variant_type,
+  s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
+  s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type,
+  s.is_parent, s.parent_set_id,
   COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
   COUNT(c.id) AS cards_in_db,
   COUNT(c.id) FILTER (
@@ -181,8 +173,10 @@ LEFT JOIN set_denominators sd ON sd.set_id = s.id
 LEFT JOIN cards c ON c.set_id = s.id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
+WHERE s.parent_set_id IS NULL
 GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
-         s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type, sd.printed_total
+         s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type,
+         s.is_parent, s.parent_set_id, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
 
 -- ─── SERIES MAP ───────────────────────────────────────────────────────────────
