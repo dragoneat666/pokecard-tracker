@@ -152,22 +152,40 @@ export default function SetView() {
   const sortedCards = [...filteredCards].sort((a, b) => {
     let aVal, bVal;
     if (sortCol === 'number') {
-      const getPrefix = n => n.split('/')[0].replace(/[0-9]/g, '');
-      const getNum    = n => parseInt(n.replace(/[^0-9]/g, '')) || 0;
-      const aPrefix = getPrefix(a.card_number);
-      const bPrefix = getPrefix(b.card_number);
-      const aIsLetter = aPrefix !== '' ? 1 : 0;
-      const bIsLetter = bPrefix !== '' ? 1 : 0;
-      // Letter-prefix cards always sort after pure numeric, regardless of direction
+      // Split card number into three parts:
+      // leadingLetters — letters BEFORE the number (H, TG, AR etc)
+      // num            — the numeric part
+      // trailingSuffix — letters AFTER the number (a, b in 050a, 050b)
+      const parse = n => {
+        const base = n.split('/')[0];
+        const match = base.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
+        if (!match) return { leading: base, num: 0, suffix: '' };
+        return { leading: match[1], num: parseInt(match[2]) || 0, suffix: match[3] };
+      };
+      const a$ = parse(a.card_number);
+      const b$ = parse(b.card_number);
+    
+      // Pure numeric cards (no leading letters) always come first
+      const aIsLetter = a$.leading !== '' ? 1 : 0;
+      const bIsLetter = b$.leading !== '' ? 1 : 0;
       if (aIsLetter !== bIsLetter) return aIsLetter - bIsLetter;
-      // Within same group: sort by prefix alphabetically, then by number
-      if (aPrefix !== bPrefix) {
+    
+      // Within same group: sort by leading prefix alphabetically
+      if (a$.leading !== b$.leading) {
         return sortDir === 'asc'
-          ? aPrefix.localeCompare(bPrefix)
-          : bPrefix.localeCompare(aPrefix);
+          ? a$.leading.localeCompare(b$.leading)
+          : b$.leading.localeCompare(a$.leading);
       }
-      const diff = getNum(a.card_number) - getNum(b.card_number);
-      return sortDir === 'asc' ? diff : -diff;
+    
+      // Then by number
+      if (a$.num !== b$.num) {
+        return sortDir === 'asc' ? a$.num - b$.num : b$.num - a$.num;
+      }
+    
+      // Then by trailing suffix (a before b, no suffix before a)
+      return sortDir === 'asc'
+        ? a$.suffix.localeCompare(b$.suffix)
+        : b$.suffix.localeCompare(a$.suffix);
     } else if (sortCol === 'name') {
       aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase();
     } else if (sortCol === 'rarity') {
