@@ -1,5 +1,5 @@
 // components/EditSetModal.jsx — Edit set metadata
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 
 const SET_TYPES    = ['Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
@@ -19,9 +19,16 @@ export default function EditSetModal({ set, onClose, onSaved }) {
     logo_url:     set.logo_url     || '',
     symbol_url:   set.symbol_url   || '',
     release_date: set.release_date ? set.release_date.split('T')[0] : '',
+    is_parent:     set.is_parent     || false,
+    parent_set_id: set.parent_set_id || '',
   });
-  const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState(null);
+  const [saving, setSaving]       = useState(false);
+  const [error, setError]         = useState(null);
+  const [parentSets, setParentSets] = useState([]);
+  
+  useEffect(() => {
+    api.sets.parentSets().then(setParentSets).catch(() => {});
+  }, []);
 
   function handleChange(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -39,6 +46,8 @@ export default function EditSetModal({ set, onClose, onSaved }) {
         logo_url:     form.logo_url     || null,
         symbol_url:   form.symbol_url   || null,
         release_date: form.release_date || null,
+        is_parent:     form.is_parent,
+        parent_set_id: form.parent_set_id || null,
       });
       onSaved();
     } catch (err) {
@@ -104,6 +113,38 @@ export default function EditSetModal({ set, onClose, onSaved }) {
             <div style={labelStyle}>Release Date</div>
             <input className="input" type="date" value={form.release_date} onChange={e => handleChange('release_date', e.target.value)} />
           </label>
+
+          {/* Is Parent checkbox */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={form.is_parent}
+              onChange={e => handleChange('is_parent', e.target.checked)}
+            />
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              This set has subsets (e.g. Generations + Radiant Collection)
+            </span>
+          </label>
+          
+          {/* Parent set dropdown — only show if this set is not itself a parent */}
+          {!form.is_parent && (
+            <label>
+              <div style={labelStyle}>Child of (subset)</div>
+              <select
+                className="input"
+                value={form.parent_set_id}
+                onChange={e => handleChange('parent_set_id', e.target.value)}
+              >
+                <option value="">— None —</option>
+                {parentSets
+                  .filter(p => p.id !== set.id)
+                  .map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))
+                }
+              </select>
+            </label>
+          )}
 
           <label>
             <div style={labelStyle}>Logo URL</div>
