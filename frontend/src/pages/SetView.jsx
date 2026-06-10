@@ -152,8 +152,22 @@ export default function SetView() {
   const sortedCards = [...filteredCards].sort((a, b) => {
     let aVal, bVal;
     if (sortCol === 'number') {
-      aVal = parseInt(a.card_number) || 0;
-      bVal = parseInt(b.card_number) || 0;
+      const getPrefix = n => n.split('/')[0].replace(/[0-9]/g, '');
+      const getNum    = n => parseInt(n.replace(/[^0-9]/g, '')) || 0;
+      const aPrefix = getPrefix(a.card_number);
+      const bPrefix = getPrefix(b.card_number);
+      const aIsLetter = aPrefix !== '' ? 1 : 0;
+      const bIsLetter = bPrefix !== '' ? 1 : 0;
+      // Letter-prefix cards always sort after pure numeric, regardless of direction
+      if (aIsLetter !== bIsLetter) return aIsLetter - bIsLetter;
+      // Within same group: sort by prefix alphabetically, then by number
+      if (aPrefix !== bPrefix) {
+        return sortDir === 'asc'
+          ? aPrefix.localeCompare(bPrefix)
+          : bPrefix.localeCompare(aPrefix);
+      }
+      const diff = getNum(a.card_number) - getNum(b.card_number);
+      return sortDir === 'asc' ? diff : -diff;
     } else if (sortCol === 'name') {
       aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase();
     } else if (sortCol === 'rarity') {
