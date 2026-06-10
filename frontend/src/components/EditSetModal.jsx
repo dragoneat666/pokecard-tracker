@@ -20,7 +20,7 @@ export default function EditSetModal({ set, onClose, onSaved }) {
     symbol_url:   set.symbol_url   || '',
     release_date: set.release_date ? set.release_date.split('T')[0] : '',
     is_parent:     set.is_parent     || false,
-    parent_set_id: set.parent_set_id || '',
+    parent_set_id: set.parent_set_id ? String(set.parent_set_id) : '',
   });
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState(null);
@@ -47,7 +47,7 @@ export default function EditSetModal({ set, onClose, onSaved }) {
         symbol_url:   form.symbol_url   || null,
         release_date: form.release_date || null,
         is_parent:     form.is_parent,
-        parent_set_id: form.parent_set_id || null,
+        parent_set_id: form.parent_set_id ? parseInt(form.parent_set_id) : null,
       });
       onSaved();
     } catch (err) {
