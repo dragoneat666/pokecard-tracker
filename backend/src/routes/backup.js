@@ -57,7 +57,10 @@ async function runBackup() {
     JOIN sets s ON s.id = c.set_id
     LEFT JOIN reverse_holos rh ON rh.card_id = c.id
     ORDER BY s.release_date DESC NULLS LAST,
-      (REGEXP_REPLACE(c.card_number, '[^0-9]', '', 'g'))::INTEGER ASC NULLS LAST
+      CASE WHEN REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[0-9]', '', 'g') = ''
+        THEN 0 ELSE 1
+      END ASC,
+      NULLIF(REGEXP_REPLACE(c.card_number, '[^0-9]', '', 'g'), '')::INTEGER ASC NULLS LAST
   ) TO STDOUT WITH CSV HEADER`;
 
   await execAsync(
