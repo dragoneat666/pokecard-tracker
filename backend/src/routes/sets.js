@@ -15,7 +15,7 @@ router.get('/', async (_req, res, next) => {
         cards_owned, cards_in_db, regular_cards, secret_cards, reverse_holo_count,
         master_total, master_owned, completion_pct, total_value, reverse_holo_value,
         (total_value + reverse_holo_value) AS grand_total_value
-      FROM set_summary
+      FROM set_summary_cache
       ORDER BY release_date DESC NULLS LAST
     `);
     res.json(rows);
@@ -195,6 +195,9 @@ router.patch('/:id', async (req, res, next) => {
     `, [name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent ?? null, parent_set_id ?? null, id]);
 
     if (rows.length === 0) return res.status(404).json({ error: 'Set not found' });
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
     res.json(rows[0]);
   } catch (err) {
     next(err);
@@ -211,6 +214,9 @@ router.delete('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Set not found' });
     }
 
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
     res.status(204).send();
   } catch (err) {
     next(err);

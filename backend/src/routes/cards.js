@@ -83,6 +83,9 @@ router.patch('/:id/owned', async (req, res, next) => {
       [owned, id]
     );
 
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
     res.json(rows[0]);
   } catch (err) {
     next(err);
@@ -113,6 +116,9 @@ router.patch('/:id/reverse-owned', async (req, res, next) => {
       RETURNING *
     `, [owned, id]);
 
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
     res.json(rows[0]);
   } catch (err) {
     next(err);

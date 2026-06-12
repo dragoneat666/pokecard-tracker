@@ -293,6 +293,9 @@ export async function importSetCards(tcgSetId) {
     console.error(`Initial price fetch failed for ${set.name}:`, err.message);
   });
 
+  query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+    console.error('Cache refresh failed:', err.message)
+  );
   return set;
 }
 
@@ -352,6 +355,9 @@ export async function refreshPricesForSet(setId) {
   }
 
   console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
+  query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+    console.error('Cache refresh failed:', err.message)
+  );
 }
 
 // ─── SCHEDULED AUTO-REFRESH ───────────────────────────────────────────────────

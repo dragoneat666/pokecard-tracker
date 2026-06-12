@@ -179,6 +179,14 @@ GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
          s.is_parent, s.parent_set_id, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
 
+-- ─── MATERIALIZED VIEW CACHE ──────────────────────────────────────────────────
+-- Caches set_summary results for fast dashboard loads.
+-- Refreshed automatically after imports, price updates, and card ownership changes.
+CREATE MATERIALIZED VIEW set_summary_cache AS
+SELECT * FROM set_summary;
+
+CREATE UNIQUE INDEX idx_set_summary_cache_id ON set_summary_cache(id);
+
 -- ─── SERIES MAP ───────────────────────────────────────────────────────────────
 -- Maps set codes to series names. is_manual = true means a user set this
 -- through the UI and it will never be overwritten by auto-detection on reimport.
