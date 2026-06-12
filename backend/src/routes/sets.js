@@ -39,12 +39,12 @@ router.get('/parents', async (_req, res, next) => {
   }
 });
 
-// ─── GET /api/sets/:id/children ───────────────────────────────────────────────
-router.get('/:id/children', async (req, res, next) => {
+// ─── GET /api/sets/children/:parentId ─────────────────────────────────────────
+router.get('/children/:parentId', async (req, res, next) => {
   try {
     const { rows } = await query(
       'SELECT id, name FROM sets WHERE parent_set_id = $1 ORDER BY release_date ASC',
-      [req.params.id]
+      [req.params.parentId]
     );
     res.json(rows);
   } catch (err) {

@@ -45,7 +45,7 @@ export const api = {
     delete:    (id)         => request('DELETE', `/sets/${id}`),
     update:      (id, data) => request('PATCH', `/sets/${id}`, data),
     parentSets:  ()         => request('GET',   '/sets/parents'),
-    children:    (id)       => request('GET',   `/sets/${id}/children`),
+    children:    (id)       => request('GET',   `/sets/children/${id}`),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
