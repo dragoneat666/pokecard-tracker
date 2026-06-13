@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import Dashboard from './pages/Dashboard.jsx';
 import SetView   from './pages/SetView.jsx';
-import Import    from './pages/Import.jsx';
 import Admin     from './pages/Admin.jsx';
 
 function Layout() {
@@ -34,7 +33,6 @@ function Layout() {
           ⚡ PokeCard Tracker
         </NavLink>
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
-        <NavLink to="/import" style={navStyle}>Import</NavLink>
         <NavLink to="/admin" style={navStyle}>Admin</NavLink>
         <div style={{ flex: 1 }} />
         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
@@ -45,7 +43,6 @@ function Layout() {
         <Routes>
           <Route path="/"         element={<Dashboard />} />
           <Route path="/sets/:id" element={<SetView />} />
-          <Route path="/import"   element={<Import />} />
           <Route path="/admin"    element={<Admin />} />
         </Routes>
       </main>

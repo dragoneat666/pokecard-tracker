@@ -67,8 +67,8 @@ export const api = {
 
   // ── Import ────────────────────────────────────────────────────────────────
   import: {
-    excel: (formData) => fetch(`${BASE}/import`, { method: 'POST', body: formData })
-                          .then(r => r.json()),
+    excel:      (formData) => fetch(`${BASE}/import`, { method: 'POST', body: formData }).then(r => r.json()),
+    collection: (formData) => fetch(`${BASE}/import/collection`, { method: 'POST', body: formData }).then(r => r.json()),
   },
   // ── Backup ────────────────────────────────────────────────────────────────
   backup: {
