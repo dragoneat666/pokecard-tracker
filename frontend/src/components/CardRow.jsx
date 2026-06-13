@@ -6,12 +6,14 @@
 //   - Checking box 2 automatically checks box 1 first
 //   - Unchecking box 1 clears both
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
+
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
 const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
+  const [hovered, setHovered] = useState(false);
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
 
@@ -51,19 +53,20 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol
 
   const typeColor = TYPE_COLORS[card.pokemon_type] || 
     Object.entries(TYPE_COLORS).find(([key]) => card.pokemon_type?.includes(key))?.[1] || null;
-  const rowBg = typeColor
-    ? (card.owned >= 1 ? typeColor + '35' : typeColor + '20')
-    : (zebra ? 'var(--bg-elevated)' : 'transparent');
-  const ownedBg = rowBg;
+  const rowBg = hovered
+    ? 'var(--bg-elevated)'
+    : typeColor
+      ? (card.owned >= 1 ? typeColor + '35' : typeColor + '20')
+      : (zebra ? 'var(--bg-elevated)' : 'transparent');
 
   return (
     <tr style={{
-      background: ownedBg,
+      background: rowBg,
       borderBottom: '1px solid var(--border)',
       transition: 'background var(--transition)',
     }}
-    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
-    onMouseLeave={e => e.currentTarget.style.background = ownedBg}
+    onMouseEnter={() => setHovered(true)}
+    onMouseLeave={() => setHovered(false)}
     >
       {/* Card number */}
       <td style={tdStyle}>

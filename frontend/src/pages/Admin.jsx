@@ -550,7 +550,7 @@ function BackupSection() {
       setRunning(true);
       setMessage(null);
       const result = await api.backup.run();
-      setMessage({ type: 'success', text: `Backup created: ${result.filename}` });
+      setMessage({ type: 'success', text: `Backup created: ${result.sqlFile} + ${result.csvFile}` });
       await loadBackups();
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
