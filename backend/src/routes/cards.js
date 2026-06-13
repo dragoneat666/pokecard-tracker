@@ -30,7 +30,6 @@ const BASIC_RARITIES = new Set([
   'Rare Holo',
   'Energy',
   'Trainer',      // Some sets use this
-  'Promo',        // Basic promos
 ]);
 
 // Returns true if this rarity gets the 2-checkbox treatment (can own 2 copies)
