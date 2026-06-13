@@ -54,6 +54,7 @@ export default function EditSetModal({ set, onClose, onSaved }) {
         logo_url:     form.logo_url     || null,
         symbol_url:   form.symbol_url   || null,
         release_date: form.release_date || null,
+        date_manual:  form.release_date ? true : false,
         is_parent:     form.is_parent,
         parent_set_id: form.parent_set_id ? parseInt(form.parent_set_id) : null,
       });

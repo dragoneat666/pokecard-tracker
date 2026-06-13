@@ -177,7 +177,7 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id } = req.body;
+    const { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual } = req.body;
 
     const { rows } = await query(`
       UPDATE sets SET
@@ -187,12 +187,13 @@ router.patch('/:id', async (req, res, next) => {
         logo_url      = $4,
         symbol_url    = $5,
         series        = COALESCE($6, series),
-        release_date  = COALESCE($7::date, release_date),
+        release_date  = CASE WHEN $7::date IS NOT NULL THEN $7::date ELSE release_date END,
         is_parent     = COALESCE($8, is_parent),
-        parent_set_id = $9
-      WHERE id = $10
+        parent_set_id = $9,
+        date_manual   = COALESCE($10, date_manual)
+      WHERE id = $11
       RETURNING *
-    `, [name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent ?? null, parent_set_id ?? null, id]);
+    `, [name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent ?? null, parent_set_id ?? null, date_manual ?? null, id]);
 
     if (rows.length === 0) return res.status(404).json({ error: 'Set not found' });
     query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>

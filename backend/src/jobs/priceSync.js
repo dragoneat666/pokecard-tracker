@@ -179,7 +179,7 @@ export async function importSetCards(tcgSetId) {
       let page = 1;
       let hasMore = true;
       while (hasMore) {
-        const cardsData = await pokewalletFetch(`/sets/${pokeSet.set_code}?page=${page}&limit=50`);
+        const cardsData = await pokewalletFetch(`/sets/${pokeSet.set_id}?page=${page}&limit=50`);
         const pageCards = Array.isArray(cardsData) ? cardsData : (cardsData.cards || []);
 
         for (const card of pageCards) {
@@ -208,13 +208,13 @@ export async function importSetCards(tcgSetId) {
   console.log('   Step 3: Inserting set into database...');
 
   const setResult = await query(`
-    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url, set_code, symbol_url, language)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO sets (tcg_id, name, series, total_cards, release_date, logo_url, set_code, symbol_url, language, date_manual)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT (tcg_id) DO UPDATE SET
       name         = EXCLUDED.name,
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
-      release_date = EXCLUDED.release_date,
+      release_date = CASE WHEN sets.date_manual THEN sets.release_date ELSE EXCLUDED.release_date END,
       logo_url     = COALESCE(EXCLUDED.logo_url, sets.logo_url),
       set_code     = EXCLUDED.set_code,
       symbol_url   = COALESCE(EXCLUDED.symbol_url, sets.symbol_url),
@@ -230,6 +230,7 @@ export async function importSetCards(tcgSetId) {
     tcgSet?.abbreviation || pokeSet?.set_code || null,
     symbolUrl,
     pokeSet?.language || 'eng',
+    false,
   ]);
 
   const set = setResult.rows[0];

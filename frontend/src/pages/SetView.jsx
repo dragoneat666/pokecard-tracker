@@ -137,7 +137,8 @@ export default function SetView() {
   const filteredCards = cards.filter(card => {
     const matchesQuickFilter =
       quickFilter === 'all'             ? true :
-      quickFilter === 'missing_regular' ? card.owned === 0 :
+      quickFilter === 'missing_regular' ? (card.owned === 0 && !isCollectorRarity(card.rarity)) :
+      quickFilter === 'missing_fullart' ? (card.owned === 0 && isCollectorRarity(card.rarity)) :
       quickFilter === 'missing_reverse' ? ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0) :
       quickFilter === 'missing_all'     ? (card.owned === 0 || ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0)) : true;
 
@@ -252,10 +253,16 @@ export default function SetView() {
       {/* ── Filters ── */}
       <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
         {[
-          { key: 'all',             label: 'Clear' },
-          { key: 'missing_regular', label: `Missing Regular (${cards.filter(c => c.owned === 0).length})` },
-          { key: 'missing_reverse', label: `Missing ${setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => (setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0).length})` },
-          { key: 'missing_all',     label: `Missing All (${cards.filter(c => c.owned === 0 || ((setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0)).length})` },
+          { key: 'all',
+            label: 'Clear' },
+          { key: 'missing_regular',
+            label: `Missing Regular (${cards.filter(c => c.owned === 0 && !isCollectorRarity(c.rarity)).length})` },
+          { key: 'missing_fullart',
+            label: `Missing Full Art (${cards.filter(c => c.owned === 0 && isCollectorRarity(c.rarity)).length})` },
+          { key: 'missing_reverse',
+            label: `Missing ${setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => (setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0).length})` },
+          { key: 'missing_all',
+            label: `Missing All (${cards.filter(c => c.owned === 0 || ((setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0)).length})` },
         ].map(({ key, label }) => (
           <button
             key={key}

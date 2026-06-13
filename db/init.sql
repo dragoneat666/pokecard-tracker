@@ -22,6 +22,7 @@ CREATE TABLE sets (
   variant_type  TEXT NOT NULL DEFAULT 'reverse_holo',
   is_parent     BOOLEAN NOT NULL DEFAULT false,
   parent_set_id INT REFERENCES sets(id),
+  date_manual BOOLEAN NOT NULL DEFAULT false,
   created_at    TIMESTAMPTZ DEFAULT NOW() -- Timestamp with timezone
 );
 
