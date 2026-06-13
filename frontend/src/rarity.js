@@ -11,7 +11,6 @@ const BASIC_RARITIES = new Set([
   'Rare Holo',
   'Energy',
   'Trainer',
-  'Promo',
 ]);
 
 export function isCollectorRarity(rarity) {
