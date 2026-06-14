@@ -146,11 +146,25 @@ export default function EditSetModal({ set, onClose, onSaved }) {
               <div style={labelStyle}>Subsets</div>
               {childSets.map(child => (
                 <div key={child.id} style={{
-                  fontSize: '0.875rem',
-                  color: 'var(--text-secondary)',
-                  padding: '2px 0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  fontSize: '0.875rem', color: 'var(--text-secondary)', padding: '2px 0',
                 }}>
-                  — {child.name}
+                  <span>— {child.name}</span>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: '2px 6px' }}
+                    onClick={async () => {
+                      if (!confirm(`Remove ${child.name} as a subset? It will become a standalone set.`)) return;
+                      try {
+                        await api.sets.update(child.id, { parent_set_id: null });
+                        setChildSets(prev => prev.filter(c => c.id !== child.id));
+                      } catch (err) {
+                        setError(err.message);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
                 </div>
               ))}
             </div>
