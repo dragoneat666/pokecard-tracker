@@ -134,6 +134,11 @@ WITH set_denominators AS (
     AND REGEXP_REPLACE(SPLIT_PART(card_number, '/', 2), '[^0-9]', '', 'g') != ''
     AND REGEXP_REPLACE(SPLIT_PART(card_number, '/', 2), '[A-Za-z]', '', 'g') = SPLIT_PART(card_number, '/', 2)
   GROUP BY set_id
+),
+set_family AS (
+  SELECT id AS parent_id, id AS member_id FROM sets WHERE parent_set_id IS NULL
+  UNION ALL
+  SELECT parent_set_id AS parent_id, id AS member_id FROM sets WHERE parent_set_id IS NOT NULL
 )
 SELECT
   s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
@@ -167,11 +172,12 @@ SELECT
     COUNT(c.id) FILTER (WHERE c.owned >= 1)::NUMERIC
     / NULLIF(s.total_cards, 0) * 100
   , 1) AS completion_pct,
-  COALESCE(SUM(cp.market_price) FILTER (WHERE c.owned >= 1), 0) AS total_value,
-  COALESCE(SUM(cp.reverse_holo_price) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
+  COALESCE(SUM(cp.market_price * c.owned) FILTER (WHERE c.owned >= 1), 0) AS total_value,
+  COALESCE(SUM(cp.reverse_holo_price * rh.owned) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
 FROM sets s
 LEFT JOIN set_denominators sd ON sd.set_id = s.id
-LEFT JOIN cards c ON c.set_id = s.id
+LEFT JOIN set_family sf ON sf.parent_id = s.id
+LEFT JOIN cards c ON c.set_id = sf.member_id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
 LEFT JOIN reverse_holos rh ON rh.card_id = c.id
 WHERE s.parent_set_id IS NULL

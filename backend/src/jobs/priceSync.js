@@ -336,14 +336,18 @@ export async function refreshPricesForSet(setId) {
   for (const card of cards) {
     const cardPrices = prices[String(card.tcgtracking_id)]?.tcg || {};
 
-    const normalPrices      = cardPrices['Normal']            || {};
-    const holofoilPrices    = cardPrices['Holofoil']          || {};
-    const reverseHoloPrices = cardPrices['Reverse Holofoil']  || {};
+    const normalPrices            = cardPrices['Normal']                || {};
+    const holofoilPrices          = cardPrices['Holofoil']              || {};
+    const reverseHoloPrices       = cardPrices['Reverse Holofoil']      || {};
+    const firstEditionHoloPrices  = cardPrices['1st Edition Holofoil']  || {};
+    const unlimitedHoloPrices     = cardPrices['Unlimited Holofoil']    || {};
+    const firstEditionPrices      = cardPrices['1st Edition']           || {};
+    const unlimitedPrices         = cardPrices['Unlimited']             || {};
 
-    const marketPrice      = normalPrices.market      || holofoilPrices.market    || null;
-    const lowPrice         = normalPrices.low         || holofoilPrices.low       || null;
-    const reverseHoloPrice = reverseHoloPrices.market || null;
-    const holofoilPrice    = holofoilPrices.market    || null;
+    const marketPrice      = normalPrices.market          || holofoilPrices.market         || unlimitedHoloPrices.market  || unlimitedPrices.market   || null;
+    const lowPrice         = normalPrices.low             || holofoilPrices.low            || unlimitedHoloPrices.low     || unlimitedPrices.low      || null;
+    const reverseHoloPrice = reverseHoloPrices.market     || null;
+    const holofoilPrice    = firstEditionHoloPrices.market || firstEditionPrices.market    || null;
 
     if (!marketPrice && !reverseHoloPrice) continue;
 
