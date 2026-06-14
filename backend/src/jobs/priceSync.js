@@ -305,7 +305,7 @@ export async function importSetCards(tcgSetId) {
 export async function refreshPricesForSet(setId) {
   // Get the set's tcg_id (= TCGTracking set ID)
   const { rows: setRows } = await query(
-    'SELECT tcg_id, name FROM sets WHERE id = $1', [setId]
+    'SELECT tcg_id, name, variant_type FROM sets WHERE id = $1', [setId]
   );
 
   if (!setRows[0]?.tcg_id) {
@@ -313,7 +313,7 @@ export async function refreshPricesForSet(setId) {
     return;
   }
 
-  const { tcg_id, name: setName } = setRows[0];
+  const { tcg_id, name: setName, variant_type } = setRows[0];
   console.log(`💰 Refreshing prices for: ${setName}`);
 
   // Get all cards in this set that have a tcgtracking_id
@@ -346,8 +346,13 @@ export async function refreshPricesForSet(setId) {
 
     const marketPrice      = normalPrices.market          || holofoilPrices.market         || unlimitedHoloPrices.market  || unlimitedPrices.market   || null;
     const lowPrice         = normalPrices.low             || holofoilPrices.low            || unlimitedHoloPrices.low     || unlimitedPrices.low      || null;
-    const reverseHoloPrice = reverseHoloPrices.market     || null;
-    const holofoilPrice    = firstEditionHoloPrices.market || firstEditionPrices.market    || null;
+    const isFirstEdition = variant_type === 'first_edition';
+    const reverseHoloPrice = isFirstEdition
+      ? (firstEditionHoloPrices.market || firstEditionPrices.market || null)
+      : (reverseHoloPrices.market || null);
+    const holofoilPrice = isFirstEdition
+      ? null
+      : (firstEditionHoloPrices.market || firstEditionPrices.market || null);
 
     if (!marketPrice && !reverseHoloPrice) continue;
 
