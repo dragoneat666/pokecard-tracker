@@ -3,17 +3,22 @@
 
 import { formatPrice } from '../rarity.js';
 
-export default function SetStats({ cards }) {
-  if (!cards.length) return null;
+export default function SetStats({ cards, childSets = [] }) {
+  const allCards = [
+    ...cards,
+    ...childSets.flatMap(({ cards }) => cards),
+  ];
 
-  const owned      = cards.filter(c => c.owned >= 1).length;
-  const total      = cards.length;
+  if (!allCards.length) return null;
+
+  const owned      = allCards.filter(c => c.owned >= 1).length;
+  const total      = allCards.length;
   const pct        = total > 0 ? ((owned / total) * 100).toFixed(1) : 0;
-  const totalValue = cards.reduce((sum, c) => {
+  const totalValue = allCards.reduce((sum, c) => {
     return sum + (c.owned >= 1 && c.market_price ? parseFloat(c.market_price) * c.owned : 0);
   }, 0);
-  const revOwned   = cards.filter(c => c.reverse_owned >= 1).length;
-  const revValue   = cards.reduce((sum, c) => {
+  const revOwned   = allCards.filter(c => c.reverse_owned >= 1).length;
+  const revValue   = allCards.reduce((sum, c) => {
     return sum + (c.reverse_owned >= 1 && c.reverse_holo_price ? parseFloat(c.reverse_holo_price) * c.reverse_owned : 0);
   }, 0);
 

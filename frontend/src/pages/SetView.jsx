@@ -57,28 +57,38 @@ export default function SetView() {
   // instant, then fire the API call. If it fails, we revert.
   async function handleOwnedChange(cardId, newOwned) {
     const prev = cards;
-    // Optimistic update — change the card in local state right away
+    const prevChildSets = childSets;
     setCards(c => c.map(card =>
       card.id === cardId ? { ...card, owned: newOwned } : card
     ));
-
+    setChildSets(cs => cs.map(({ set, cards }) => ({
+      set,
+      cards: cards.map(card => card.id === cardId ? { ...card, owned: newOwned } : card)
+    })));
     try {
       await api.cards.setOwned(cardId, newOwned);
     } catch (err) {
-      setCards(prev); // Revert on failure
+      setCards(prev);
+      setChildSets(prevChildSets);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
 
   async function handleReverseOwnedChange(cardId, newOwned) {
     const prev = cards;
+    const prevChildSets = childSets;
     setCards(c => c.map(card =>
       card.id === cardId ? { ...card, reverse_owned: newOwned } : card
     ));
+    setChildSets(cs => cs.map(({ set, cards }) => ({
+      set,
+      cards: cards.map(card => card.id === cardId ? { ...card, reverse_owned: newOwned } : card)
+    })));
     try {
       await api.cards.setReverseOwned(cardId, newOwned);
     } catch (err) {
       setCards(prev);
+      setChildSets(prevChildSets);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
@@ -248,7 +258,7 @@ export default function SetView() {
       </div>
 
       {/* ── Stats ── */}
-      <SetStats cards={cards} />
+      <SetStats cards={cards} childSets={childSets} />
 
       {/* ── Filters ── */}
       <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
