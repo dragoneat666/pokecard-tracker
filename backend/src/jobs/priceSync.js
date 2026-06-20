@@ -18,6 +18,7 @@
 
 import cron from 'node-cron';
 import { query } from '../db.js';
+import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
 
 const POKEWALLET_BASE  = 'https://api.pokewallet.io';
 const TCGTRACKING_BASE = 'https://tcgtracking.com/tcgapi/v1/3';
@@ -215,9 +216,9 @@ export async function importSetCards(tcgSetId) {
       series       = EXCLUDED.series,
       total_cards  = EXCLUDED.total_cards,
       release_date = CASE WHEN sets.date_manual THEN sets.release_date ELSE EXCLUDED.release_date END,
-      logo_url     = COALESCE(EXCLUDED.logo_url, sets.logo_url),
+      logo_url     = CASE WHEN sets.logo_url IS NULL THEN EXCLUDED.logo_url ELSE sets.logo_url END,
       set_code     = EXCLUDED.set_code,
-      symbol_url   = COALESCE(EXCLUDED.symbol_url, sets.symbol_url),
+      symbol_url   = CASE WHEN sets.symbol_url IS NULL THEN EXCLUDED.symbol_url ELSE sets.symbol_url END,
       language     = EXCLUDED.language
     RETURNING *
   `, [
@@ -235,6 +236,16 @@ export async function importSetCards(tcgSetId) {
 
   const set = setResult.rows[0];
   console.log(`   ✅ Set "${set.name}" saved (DB id: ${set.id})`);
+
+  // Download and localize symbol_url if it's still a remote URL (first import only —
+  // the CASE WHEN above already protects existing local values from being touched)
+  if (set.symbol_url && !set.symbol_url.startsWith(process.env.BACKEND_PUBLIC_URL || 'http://100.92.56.206:14001')) {
+    const localSymbolUrl = await downloadAndLocalizeImage(set.symbol_url, set.id, 'symbol');
+    if (localSymbolUrl !== set.symbol_url) {
+      await query('UPDATE sets SET symbol_url = $1 WHERE id = $2', [localSymbolUrl, set.id]);
+      set.symbol_url = localSymbolUrl;
+    }
+  }
 
   // ── Step 4: Insert cards ───────────────────────────────────────────────────
   console.log('   Step 4: Inserting cards...');

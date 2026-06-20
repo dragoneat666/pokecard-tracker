@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { query } from '../db.js';
 import { searchSets, importSetCards } from '../jobs/priceSync.js';
+import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
 
 const router = Router();
 
@@ -177,7 +178,15 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual } = req.body;
+    let { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual } = req.body;
+
+    // Download and localize any new remote image URLs before saving
+    if (logo_url) {
+      logo_url = await downloadAndLocalizeImage(logo_url, id, 'logo');
+    }
+    if (symbol_url) {
+      symbol_url = await downloadAndLocalizeImage(symbol_url, id, 'symbol');
+    }
 
     const { rows } = await query(`
       UPDATE sets SET
