@@ -27,6 +27,9 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Serve downloaded set logos as static files
+app.use('/logos', express.static('/app/logos'));
+
 app.use('/api/sets',   setsRouter);
 app.use('/api/cards',  cardsRouter);
 app.use('/api/prices', pricesRouter);
