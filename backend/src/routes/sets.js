@@ -293,6 +293,21 @@ router.patch('/:id', async (req, res, next) => {
     const { id } = req.params;
     let { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual } = req.body;
 
+    // If series is being manually set, sync it to series_map as a protected
+    // entry so future reimports of this or any set sharing the same set_code
+    // won't overwrite it with auto-detection.
+    if (series) {
+      const { rows: setRows } = await query('SELECT set_code FROM sets WHERE id = $1', [id]);
+      const setCode = setRows[0]?.set_code;
+      if (setCode) {
+        await query(`
+          INSERT INTO series_map (set_code, series, is_manual)
+          VALUES ($1, $2, true)
+          ON CONFLICT (set_code) DO UPDATE SET series = $2, is_manual = true
+        `, [setCode, series]);
+      }
+    }
+
     // Download and localize any new remote image URLs before saving
     if (logo_url) {
       logo_url = await downloadAndLocalizeImage(logo_url, id, 'logo');
