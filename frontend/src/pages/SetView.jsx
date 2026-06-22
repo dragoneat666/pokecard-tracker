@@ -17,6 +17,7 @@ import { isCollectorRarity, formatPrice } from '../rarity.js';
 import CardRow from '../components/CardRow.jsx';
 import SetStats from '../components/SetStats.jsx';
 import { getAdjacentSets } from '../utils/sortSets.js';
+import SetToolsModal from '../components/SetToolsModal.jsx';
 
 export default function SetView() {
   const { id }  = useParams();   // The set ID from the URL /sets/:id
@@ -34,6 +35,7 @@ export default function SetView() {
   const [childSets, setChildSets]     = useState([]);
   const [allSets, setAllSets] = useState([]);
   const [alternateCards, setAlternateCards] = useState([]);
+  const [showSetTools, setShowSetTools] = useState(false);
 
   const { toast, showToast } = useToast();
 
@@ -311,11 +313,9 @@ export default function SetView() {
 
         <button
           className="btn btn-ghost"
-          onClick={handleRefreshPrices}
-          disabled={refreshing}
-          style={{ borderColor: 'var(--warning)', color: 'var(--warning)' }}
+          onClick={() => setShowSetTools(true)}
         >
-          {refreshing ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Refreshing...</> : '↻ Refresh Prices'}
+          ⚙ Set Tools
         </button>
       </div>
 
@@ -544,6 +544,14 @@ export default function SetView() {
             </div>
           </div>
         </div>
+      )}
+
+      {showSetTools && (
+        <SetToolsModal
+          set={setData}
+          onClose={() => setShowSetTools(false)}
+          onChanged={() => { setShowSetTools(false); loadSet(); }}
+        />
       )}
 
       {/* ── Toast ── */}
