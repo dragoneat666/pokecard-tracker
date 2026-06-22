@@ -33,6 +33,7 @@ export default function SetView() {
   const [quickFilter, setQuickFilter] = useState('all');
   const [childSets, setChildSets]     = useState([]);
   const [allSets, setAllSets] = useState([]);
+  const [alternateCards, setAlternateCards] = useState([]);
 
   const { toast, showToast } = useToast();
 
@@ -44,6 +45,7 @@ export default function SetView() {
       setSetData(data.set);
       setCards(data.cards);
       setChildSets(data.childSets || []);
+      setAlternateCards(data.alternateCards || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -64,6 +66,7 @@ export default function SetView() {
   async function handleOwnedChange(cardId, newOwned) {
     const prev = cards;
     const prevChildSets = childSets;
+    const prevAlternateCards = alternateCards;
     setCards(c => c.map(card =>
       card.id === cardId ? { ...card, owned: newOwned } : card
     ));
@@ -71,11 +74,15 @@ export default function SetView() {
       set,
       cards: cards.map(card => card.id === cardId ? { ...card, owned: newOwned } : card)
     })));
+    setAlternateCards(ac => ac.map(card =>
+      card.id === cardId ? { ...card, owned: newOwned } : card
+    ));
     try {
       await api.cards.setOwned(cardId, newOwned);
     } catch (err) {
       setCards(prev);
       setChildSets(prevChildSets);
+      setAlternateCards(prevAlternateCards);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
@@ -83,6 +90,7 @@ export default function SetView() {
   async function handleReverseOwnedChange(cardId, newOwned) {
     const prev = cards;
     const prevChildSets = childSets;
+    const prevAlternateCards = alternateCards;
     setCards(c => c.map(card =>
       card.id === cardId ? { ...card, reverse_owned: newOwned } : card
     ));
@@ -90,11 +98,15 @@ export default function SetView() {
       set,
       cards: cards.map(card => card.id === cardId ? { ...card, reverse_owned: newOwned } : card)
     })));
+    setAlternateCards(ac => ac.map(card =>
+      card.id === cardId ? { ...card, reverse_owned: newOwned } : card
+    ));
     try {
       await api.cards.setReverseOwned(cardId, newOwned);
     } catch (err) {
       setCards(prev);
       setChildSets(prevChildSets);
+      setAlternateCards(prevAlternateCards);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
@@ -472,7 +484,68 @@ export default function SetView() {
           </div>
         </div>
       ))}
-      
+
+      {/* ── Alternates Section ── */}
+      {alternateCards.length > 0 && (
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+            marginBottom: 'var(--space-3)',
+          }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={{
+              fontSize: '1.1rem',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap',
+            }}>
+              Alternates
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
+
+          <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+                    {[
+                      { label: '#' }, { label: 'Name' }, { label: 'Type' },
+                      { label: 'Rarity' }, { label: 'Regular' },
+                      ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo' }] : []),
+                      { label: 'Storage' }, { label: 'Condition' },
+                      { label: 'Price' }, { label: 'Total' },
+                      ...(showVariantCol ? [
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total' },
+                      ] : []),
+                    ].map(({ label }) => (
+                      <th key={label} style={{ ...thStyle, color: 'var(--text-secondary)' }}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {alternateCards.map((card, idx) => (
+                    <CardRow
+                      key={card.id}
+                      card={card}
+                      zebra={idx % 2 === 1}
+                      variantType={setData?.variant_type}
+                      showVariantCol={showVariantCol}
+                      onOwnedChange={handleOwnedChange}
+                      onReverseOwnedChange={handleReverseOwnedChange}
+                      onStorageChange={handleStorageChange}
+                      onConditionChange={handleConditionChange}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Toast ── */}
       {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
     </div>

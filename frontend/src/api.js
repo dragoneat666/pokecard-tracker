@@ -46,6 +46,8 @@ export const api = {
     update:      (id, data) => request('PATCH', `/sets/${id}`, data),
     parentSets:  ()         => request('GET',   '/sets/parents'),
     children:    (id)       => request('GET',   `/sets/children/${id}`),
+    searchMcap:  (id, q)    => request('GET',   `/sets/${id}/search-mcap?q=${encodeURIComponent(q)}`),
+    importAlternate: (id, data) => request('POST', `/sets/${id}/import-alternate`, data),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
