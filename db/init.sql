@@ -60,6 +60,11 @@ CREATE TABLE cards (
   condition     TEXT NOT NULL DEFAULT 'Near Mint'
                 CHECK (condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')),
 
+  -- True for cards that don't belong in the official checklist — MCAP
+  -- alternate art imports, manually moved misprints, etc. Displayed in a
+  -- separate "Alternates" section below the main card table and any subsets.
+  is_alternate  BOOLEAN NOT NULL DEFAULT false,
+
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
