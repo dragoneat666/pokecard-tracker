@@ -16,6 +16,7 @@ import { useToast } from '../hooks/useToast.js';
 import { isCollectorRarity, formatPrice } from '../rarity.js';
 import CardRow from '../components/CardRow.jsx';
 import SetStats from '../components/SetStats.jsx';
+import { getAdjacentSets } from '../utils/sortSets.js';
 
 export default function SetView() {
   const { id }  = useParams();   // The set ID from the URL /sets/:id
@@ -31,6 +32,7 @@ export default function SetView() {
   const [sortDir, setSortDir]       = useState('asc');
   const [quickFilter, setQuickFilter] = useState('all');
   const [childSets, setChildSets]     = useState([]);
+  const [allSets, setAllSets] = useState([]);
 
   const { toast, showToast } = useToast();
 
@@ -50,6 +52,10 @@ export default function SetView() {
   }, [id]);
 
   useEffect(() => { loadSet(); }, [loadSet]);
+
+  useEffect(() => {
+  api.sets.list().then(setAllSets).catch(() => {});
+}, []);
 
   // ── Ownership update ─────────────────────────────────────────────────────
   // Called by CardRow when a checkbox is clicked.
@@ -212,6 +218,8 @@ export default function SetView() {
     return 0;
   });
 
+  const { prev, next } = getAdjacentSets(allSets, id);
+
   const showVariantCol = setData?.variant_type !== 'none';
   
   // ── Render ────────────────────────────────────────────────────────────────
@@ -241,11 +249,31 @@ export default function SetView() {
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-        <div>
-          <h1 style={{ fontSize: '1.5rem' }}>{setData?.name}</h1>
-          <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {setData?.series}{setData?.release_date ? ` · ${new Date(setData.release_date).getFullYear()}` : ''}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => prev && navigate(`/sets/${prev.id}`)}
+            disabled={!prev}
+            title={prev ? `Previous: ${prev.name}` : 'No previous set'}
+            style={{ opacity: prev ? 1 : 0.3 }}
+          >
+            ←
+          </button>
+          <div>
+            <h1 style={{ fontSize: '1.5rem' }}>{setData?.name}</h1>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+              {setData?.series}{setData?.release_date ? ` · ${new Date(setData.release_date).getFullYear()}` : ''}
+            </span>
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => next && navigate(`/sets/${next.id}`)}
+            disabled={!next}
+            title={next ? `Next: ${next.name}` : 'No next set'}
+            style={{ opacity: next ? 1 : 0.3 }}
+          >
+            →
+          </button>
         </div>
         <button
           className="btn btn-ghost"
