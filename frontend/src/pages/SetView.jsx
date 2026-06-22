@@ -249,32 +249,54 @@ export default function SetView() {
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0 }}>
+          {/* Prev arrow — fixed-width column, left aligned */}
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => prev && navigate(`/sets/${prev.id}`)}
             disabled={!prev}
-            title={prev ? `Previous: ${prev.name}` : 'No previous set'}
-            style={{ opacity: prev ? 1 : 0.3 }}
+            style={{
+              opacity: prev ? 1 : 0.3,
+              display: 'flex', alignItems: 'center', gap: 6,
+              justifySelf: 'start', maxWidth: '100%', overflow: 'hidden',
+            }}
           >
-            ←
+            <span style={{ flexShrink: 0 }}>←</span>
+            {prev && (
+              <span style={{ fontSize: '0.72rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {prev.name}
+              </span>
+            )}
           </button>
-          <div>
+
+          {/* Set title — centered */}
+          <div style={{ textAlign: 'center', minWidth: 0 }}>
             <h1 style={{ fontSize: '1.5rem' }}>{setData?.name}</h1>
             <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
               {setData?.series}{setData?.release_date ? ` · ${new Date(setData.release_date).getFullYear()}` : ''}
             </span>
           </div>
+
+          {/* Next arrow — fixed-width column, right aligned */}
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => next && navigate(`/sets/${next.id}`)}
             disabled={!next}
-            title={next ? `Next: ${next.name}` : 'No next set'}
-            style={{ opacity: next ? 1 : 0.3 }}
+            style={{
+              opacity: next ? 1 : 0.3,
+              display: 'flex', alignItems: 'center', gap: 6,
+              justifySelf: 'end', maxWidth: '100%', overflow: 'hidden',
+            }}
           >
-            →
+            {next && (
+              <span style={{ fontSize: '0.72rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {next.name}
+              </span>
+            )}
+            <span style={{ flexShrink: 0 }}>→</span>
           </button>
         </div>
+
         <button
           className="btn btn-ghost"
           onClick={handleRefreshPrices}
