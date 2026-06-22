@@ -6,46 +6,9 @@ import { formatPrice } from '../rarity.js';
 import AddSetModal from '../components/AddSetModal.jsx';
 import EditSetModal from '../components/EditSetModal.jsx';
 import SetNavigator from '../components/SetNavigator.jsx';
+import { groupBySeries } from '../utils/sortSets.js';
 
 const SET_TYPES = ['All', 'Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
-
-// ── Group a flat set array into [{ series, sets[] }, ...] newest-first ────────
-// reduce() walks the array once. For each set, it checks if a bucket for that
-// series already exists in `acc` (accumulator). If not, it creates one. Then
-// it pushes the set into the right bucket. Object.values() turns the buckets
-// object into an array at the end.
-function groupBySeries(sets) {
-  const buckets = sets.reduce((acc, set) => {
-    const key = set.series || 'Unknown';
-    if (!acc[key]) acc[key] = { series: key, sets: [] };
-    acc[key].sets.push(set);
-    return acc;
-  }, {});
-
-  // Sort each bucket newest-first by release_date
-  Object.values(buckets).forEach(bucket => {
-    bucket.sets.sort((a, b) => {
-      // Promo sets always sort to the bottom of their series group
-      const aPromo = a.set_type === 'Promo' ? 1 : 0;
-      const bPromo = b.set_type === 'Promo' ? 1 : 0;
-      if (aPromo !== bPromo) return aPromo - bPromo;
-      // Within non-promo or within promo: newest first
-      return new Date(b.release_date) - new Date(a.release_date);
-    });
-  });
-
-  // Sort the series themselves: newest release_date in any set wins
-  return Object.values(buckets).sort((a, b) => {
-    // Exclude promo sets from series date calculation to avoid bad dates
-    // pulling a whole series out of order
-    const nonPromo = sets => sets.filter(s => s.set_type !== 'Promo');
-    const aSets = nonPromo(a.sets).length > 0 ? nonPromo(a.sets) : a.sets;
-    const bSets = nonPromo(b.sets).length > 0 ? nonPromo(b.sets) : b.sets;
-    const aDate = Math.max(...aSets.map(s => new Date(s.release_date)));
-    const bDate = Math.max(...bSets.map(s => new Date(s.release_date)));
-    return bDate - aDate;
-  });
-}
 
 export default function Dashboard() {
   const [sets, setSets]             = useState([]);
