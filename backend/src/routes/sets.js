@@ -53,6 +53,101 @@ router.get('/children/:parentId', async (req, res, next) => {
   }
 });
 
+// ─── GET /api/sets/:id/search-mcap ────────────────────────────────────────────
+// Searches the Miscellaneous Cards & Products set (MCAP) for cards that look
+// like alternate-art versions of cards in the target set. Matching is loose —
+// MCAP names embed the original card number like "Larry's Komala - 175/217
+// (Cosmo Holo)" so we extract that and compare against a query.
+router.get('/:id/search-mcap', async (req, res, next) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: 'q query param required (card number or name)' });
+
+    const { rows: mcapSets } = await query(
+      `SELECT id FROM sets WHERE tcg_id = '2374'`
+    );
+    if (mcapSets.length === 0) {
+      return res.status(404).json({ error: 'MCAP set not imported yet — import "Miscellaneous Cards & Products" first' });
+    }
+    const mcapSetId = mcapSets[0].id;
+
+    const { rows } = await query(`
+      SELECT id, card_number, name, rarity, image_url, tcgtracking_id
+      FROM cards
+      WHERE set_id = $1
+        AND (name ILIKE $2 OR card_number ILIKE $2)
+      ORDER BY name
+      LIMIT 25
+    `, [mcapSetId, `%${q}%`]);
+
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/sets/:id/import-alternate ──────────────────────────────────────
+// Copies a card from MCAP (or any other set) into the target set as an
+// alternate. Copies the card's most recent price along with it so it shows
+// up correctly immediately, without needing a separate price refresh.
+router.post('/:id/import-alternate', async (req, res, next) => {
+  try {
+    const { id } = req.params; // target set id
+    const { source_card_id, card_number } = req.body;
+
+    if (!source_card_id) {
+      return res.status(400).json({ error: 'source_card_id is required' });
+    }
+
+    const { rows: sourceRows } = await query(
+      'SELECT * FROM cards WHERE id = $1',
+      [source_card_id]
+    );
+    if (sourceRows.length === 0) {
+      return res.status(404).json({ error: 'Source card not found' });
+    }
+    const source = sourceRows[0];
+
+    // Use the provided card_number override (parsed from the MCAP name on the
+    // frontend) or fall back to the source card's own number.
+    const finalCardNumber = card_number || source.card_number;
+
+    const { rows: newCardRows } = await query(`
+      INSERT INTO cards (
+        set_id, card_number, name, pokemon_type, rarity,
+        has_reverse_holo, has_first_edition, image_url, stage, is_alternate
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+      RETURNING *
+    `, [
+      id, finalCardNumber, source.name, source.pokemon_type, source.rarity,
+      source.has_reverse_holo, source.has_first_edition, source.image_url, source.stage,
+    ]);
+    const newCard = newCardRows[0];
+
+    // Copy the most recent price for the source card, if one exists
+    const { rows: priceRows } = await query(
+      'SELECT * FROM current_prices WHERE card_id = $1',
+      [source_card_id]
+    );
+    if (priceRows.length > 0) {
+      const p = priceRows[0];
+      await query(`
+        INSERT INTO prices (card_id, market_price, low_price, reverse_holo_price, holofoil_price)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [newCard.id, p.market_price, p.low_price, p.reverse_holo_price, p.holofoil_price]);
+    }
+
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
+
+    res.status(201).json(newCard);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── GET /api/sets/:id ────────────────────────────────────────────────────────
 router.get('/:id', async (req, res, next) => {
   try {
@@ -80,7 +175,7 @@ router.get('/:id', async (req, res, next) => {
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id
-      WHERE c.set_id = $1
+      WHERE c.set_id = $1 AND c.is_alternate = false
       ORDER BY
         CASE WHEN REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[0-9]', '', 'g') = ''
           THEN 0 ELSE 1
@@ -88,6 +183,23 @@ router.get('/:id', async (req, res, next) => {
         NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER ASC NULLS LAST,
         REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[0-9]', '', 'g') ASC,
         NULLIF(REGEXP_REPLACE(SPLIT_PART(c.card_number, '/', 1), '[^0-9]', '', 'g'), '')::INTEGER ASC NULLS LAST
+    `, [id]);
+
+    const alternateCardsResult = await query(`
+      SELECT
+        c.id, c.card_number, c.name, c.pokemon_type, c.rarity,
+        c.storage, c.condition, c.stage, c.owned, c.has_extra,
+        c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
+        COALESCE(rh.owned, 0) AS reverse_owned,
+        cp.market_price, cp.low_price, cp.reverse_holo_price,
+        cp.fetched_at AS price_updated_at,
+        (cp.market_price * c.owned) AS total_value,
+        (cp.reverse_holo_price * rh.owned) AS reverse_total_value
+      FROM cards c
+      LEFT JOIN reverse_holos rh ON rh.card_id = c.id
+      LEFT JOIN current_prices cp ON cp.card_id = c.id
+      WHERE c.set_id = $1 AND c.is_alternate = true
+      ORDER BY c.name
     `, [id]);
 
     // If this is a parent set, fetch child sets and their cards
@@ -127,6 +239,7 @@ router.get('/:id', async (req, res, next) => {
     res.json({
       set: setResult.rows[0],
       cards: cardsResult.rows,
+      alternateCards: alternateCardsResult.rows,
       childSets,
     });
   } catch (err) {
