@@ -96,9 +96,7 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
           )}
 
           {activeTab === 'Search MCAP' && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-              Coming soon.
-            </div>
+            <SearchMcapTab setId={set.id} onImported={onChanged} />
           )}
 
           {activeTab === 'Move Card' && (
@@ -113,6 +111,112 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Search MCAP Tab ───────────────────────────────────────────────────────────
+function SearchMcapTab({ setId, onImported }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState(null);
+  const [importingId, setImportingId] = useState(null);
+
+  async function handleSearch() {
+    if (!query.trim()) return;
+    try {
+      setSearching(true);
+      setError(null);
+      const data = await api.sets.searchMcap(setId, query.trim());
+      setResults(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function handleImport(card) {
+    try {
+      setImportingId(card.id);
+      // Try to extract a card number embedded in the MCAP name, e.g.
+      // "Larry's Komala - 175/217 (Cosmo Holo)" → "175/217"
+      const match = card.name.match(/(\d+\/\d+)/);
+      const cardNumber = match ? match[1] : card.card_number;
+
+      await api.sets.importAlternate(setId, {
+        source_card_id: card.id,
+        card_number: cardNumber,
+      });
+      setResults(prev => prev.filter(c => c.id !== card.id));
+      onImported();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImportingId(null);
+    }
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+        Search Miscellaneous Cards &amp; Products (MCAP) for alternate art versions of cards in this set —
+        try a card name or number like "Komala" or "175/217".
+      </p>
+
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        <input
+          className="input"
+          placeholder="Search by name or card number…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-primary" onClick={handleSearch} disabled={searching}>
+          {searching ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+          {error}
+        </div>
+      )}
+
+      {results.length === 0 && !searching && (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+          No results yet — try a search above.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {results.map(card => (
+          <div
+            key={card.id}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: 'var(--space-3)', background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{card.name}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {card.card_number} · {card.rarity || 'Unknown rarity'}
+              </div>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleImport(card)}
+              disabled={importingId === card.id}
+            >
+              {importingId === card.id ? 'Importing…' : '+ Import'}
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
