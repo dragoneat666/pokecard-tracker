@@ -248,8 +248,8 @@ export default function SetView() {
       </div>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-5)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0, maxWidth: 900 }}>
           {/* Prev arrow — fixed-width column, left aligned */}
           <button
             className="btn btn-ghost btn-sm"
