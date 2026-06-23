@@ -64,6 +64,7 @@ CREATE TABLE cards (
   -- alternate art imports, manually moved misprints, etc. Displayed in a
   -- separate "Alternates" section below the main card table and any subsets.
   is_alternate  BOOLEAN NOT NULL DEFAULT false,
+  type_manual   BOOLEAN NOT NULL DEFAULT false,
 
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );

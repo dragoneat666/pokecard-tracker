@@ -86,6 +86,26 @@ router.get('/:id/search-mcap', async (req, res, next) => {
   }
 });
 
+// ─── GET /api/sets/:id/missing-type ───────────────────────────────────────────
+// Returns all cards (main + alternates + subsets like Trainer Gallery) in this
+// set's family that have no pokemon_type set.
+router.get('/:id/missing-type', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await query(`
+      SELECT c.id, c.card_number, c.name, c.rarity, c.pokemon_type, c.is_alternate, s.name AS set_name
+      FROM cards c
+      JOIN sets s ON s.id = c.set_id
+      WHERE (c.set_id = $1 OR s.parent_set_id = $1)
+        AND c.pokemon_type IS NULL
+      ORDER BY c.is_alternate, s.id, c.name
+    `, [id]);
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/sets/:id/import-alternate ──────────────────────────────────────
 // Copies a card from MCAP (or any other set) into the target set as an
 // alternate. Copies the card's most recent price along with it so it shows

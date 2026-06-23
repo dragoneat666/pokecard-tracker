@@ -200,6 +200,26 @@ router.patch('/:id/extra', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/cards/:id/type ────────────────────────────────────────────────
+// Manually sets a card's pokemon_type and protects it from being overwritten
+// by future reimports (same pattern as date_manual for sets).
+router.patch('/:id/type', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { pokemon_type } = req.body;
+
+    const { rows } = await query(
+      'UPDATE cards SET pokemon_type = $1, type_manual = true WHERE id = $2 RETURNING *',
+      [pokemon_type, id]
+    );
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/cards ──────────────────────────────────────────────────────────
 // Manually add a single card to a set.
 // Used for the manual entry path (sets not in the TCG API, promos, etc.)
