@@ -104,9 +104,7 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
           )}
 
           {activeTab === 'Manual Add' && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-              Coming soon.
-            </div>
+            <ManualAddTab setId={set.id} onAdded={onChanged} />
           )}
 
           {activeTab === 'Edit Type' && (
@@ -552,3 +550,173 @@ function EditTypeTab({ setId, onChanged }) {
     </div>
   );
 }
+
+// ── Manual Add Tab ────────────────────────────────────────────────────────────
+const BASIC_RARITIES_LIST = ['Common', 'Uncommon', 'Rare', 'Rare Holo', 'Energy', 'Trainer'];
+const COLLECTOR_RARITIES_LIST = [
+  'Holo Rare', 'Ultra Rare', 'Secret Rare', 'Rainbow Rare', 'Special Illustration Rare',
+  'Illustration Rare', 'Full Art', 'Promo',
+];
+
+function ManualAddTab({ setId, onAdded }) {
+  const [subsets, setSubsets] = useState([]);
+  const [targetSetId, setTargetSetId] = useState(setId);
+  const [table, setTable] = useState('main');
+  const [cardNumber, setCardNumber] = useState('');
+  const [name, setName] = useState('');
+  const [pokemonType, setPokemonType] = useState('');
+  const [rarity, setRarity] = useState('');
+  const [notes, setNotes] = useState('');
+  const [notesUrl, setNotesUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+
+  useEffect(() => {
+    api.sets.children(setId).then(setSubsets).catch(() => {});
+  }, [setId]);
+
+  async function handleSubmit() {
+    if (!cardNumber.trim() || !name.trim()) {
+      setError('Card number and name are required.');
+      return;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      setSuccess(null);
+      await api.cards.create({
+        set_id: targetSetId,
+        card_number: cardNumber.trim(),
+        name: name.trim(),
+        pokemon_type: pokemonType || null,
+        rarity: rarity || null,
+        is_alternate: table === 'alternate',
+        notes: notes.trim() || null,
+        notes_url: notesUrl.trim() || null,
+      });
+      setSuccess(`Added "${name.trim()}" successfully.`);
+      setCardNumber('');
+      setName('');
+      setPokemonType('');
+      setRarity('');
+      setNotes('');
+      setNotesUrl('');
+      onAdded();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const destinations = [
+    { value: setId, label: 'This set' },
+    ...subsets.map(s => ({ value: s.id, label: s.name })),
+  ];
+
+  return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+        Add a card that doesn't exist in any import source — for example a missing promo
+        or a card the API never picked up.
+      </p>
+
+      {error && (
+        <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div style={{ color: 'var(--success)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+          {success}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+          <label>
+            <div style={labelStyle}>Set</div>
+            <select className="input" value={targetSetId} onChange={e => setTargetSetId(Number(e.target.value))}>
+              {destinations.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <div style={labelStyle}>Table</div>
+            <select className="input" value={table} onChange={e => setTable(e.target.value)}>
+              <option value="main">Main</option>
+              <option value="alternate">Alternates</option>
+            </select>
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 'var(--space-3)' }}>
+          <label>
+            <div style={labelStyle}>Card Number</div>
+            <input className="input" placeholder="e.g. 175/217" value={cardNumber} onChange={e => setCardNumber(e.target.value)} />
+          </label>
+          <label>
+            <div style={labelStyle}>Name</div>
+            <input className="input" placeholder="Card name" value={name} onChange={e => setName(e.target.value)} />
+          </label>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+          <label>
+            <div style={labelStyle}>Type (optional)</div>
+            <select className="input" value={pokemonType} onChange={e => setPokemonType(e.target.value)}>
+              <option value="">— None —</option>
+              {['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Dragon', 'Colorless', 'Fairy', 'Trainer', 'Special Energy'].map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <div style={labelStyle}>Rarity (optional)</div>
+            <select className="input" value={rarity} onChange={e => setRarity(e.target.value)}>
+              <option value="">— None —</option>
+              {[...BASIC_RARITIES_LIST, ...COLLECTOR_RARITIES_LIST].map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {table === 'alternate' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+            <label>
+              <div style={labelStyle}>Notes (optional)</div>
+              <input
+                className="input"
+                placeholder="e.g. Cosmo Holo variant, 1999 misprint"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
+            </label>
+            <label>
+              <div style={labelStyle}>Notes Link (optional)</div>
+              <input
+                className="input"
+                placeholder="https://bulbapedia.bulbagarden.net/..."
+                value={notesUrl}
+                onChange={e => setNotesUrl(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving ? 'Adding…' : '+ Add Card'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle = {
+  fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)',
+  marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
+  fontFamily: 'var(--font-display)',
+};
