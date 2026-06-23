@@ -48,6 +48,7 @@ export const api = {
     children:    (id)       => request('GET',   `/sets/children/${id}`),
     searchMcap:  (id, q)    => request('GET',   `/sets/${id}/search-mcap?q=${encodeURIComponent(q)}`),
     importAlternate: (id, data) => request('POST', `/sets/${id}/import-alternate`, data),
+    missingType: (id) => request('GET', `/sets/${id}/missing-type`),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ export const api = {
     setCondition:    (id, condition) => request('PATCH', `/cards/${id}/condition`,    { condition }),
     create:          (data)         => request('POST',  '/cards',                     data),
     delete:          (id)           => request('DELETE',`/cards/${id}`),
+    setType: (id, pokemon_type) => request('PATCH', `/cards/${id}/type`, { pokemon_type }),
   },
 
   // ── Prices ────────────────────────────────────────────────────────────────

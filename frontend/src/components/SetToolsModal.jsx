@@ -1,8 +1,8 @@
 // components/SetToolsModal.jsx — Set-level tools: reimport, alternates, move cards, manual add
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 
-const TABS = ['Reimport', 'Search MCAP', 'Move Card', 'Manual Add'];
+const TABS = ['Reimport', 'Search MCAP', 'Move Card', 'Manual Add', 'Edit Type'];
 
 export default function SetToolsModal({ set, onClose, onChanged }) {
   const [activeTab, setActiveTab] = useState('Reimport');
@@ -110,6 +110,10 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
               Coming soon.
             </div>
           )}
+
+          {activeTab === 'Edit Type' && (
+            <EditTypeTab setId={set.id} onChanged={onChanged} />
+        )}
         </div>
       </div>
     </div>
@@ -218,6 +222,112 @@ function SearchMcapTab({ setId, onImported }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Edit Type Tab ─────────────────────────────────────────────────────────────
+const POKEMON_TYPES = [
+  'Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting',
+  'Darkness', 'Metal', 'Dragon', 'Colorless', 'Fairy', 'Trainer', 'Special Energy',
+];
+
+function EditTypeTab({ setId, onChanged }) {
+  const [cards, setCards] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [savingId, setSavingId] = useState(null);
+  const [selectedType, setSelectedType] = useState({});
+
+  useEffect(() => {
+    loadMissing();
+  }, []);
+
+  async function loadMissing() {
+    try {
+      setLoading(true);
+      const data = await api.sets.missingType(setId);
+      setCards(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave(card) {
+    const type = selectedType[card.id];
+    if (!type) return;
+    try {
+      setSavingId(card.id);
+      await api.cards.setType(card.id, type);
+      setCards(prev => prev.filter(c => c.id !== card.id));
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+        Cards below have no Pokémon type set — likely a data gap from the import APIs.
+        Setting a type here protects it from being overwritten on future reimports.
+      </p>
+
+      {error && (
+        <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading…</div>
+      ) : cards.length === 0 ? (
+        <div style={{ color: 'var(--success)', fontSize: '0.875rem' }}>
+          ✅ All cards in this set have a type set.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          {cards.map(card => (
+            <div
+              key={card.id}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)',
+                padding: 'var(--space-3)', background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{card.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {card.card_number} · {card.rarity || 'Unknown rarity'}
+                  {card.set_name ? ` · ${card.set_name}` : ''}
+                  {card.is_alternate ? ' · Alternate' : ''}
+                </div>
+              </div>
+              <select
+                className="input"
+                value={selectedType[card.id] || ''}
+                onChange={e => setSelectedType(prev => ({ ...prev, [card.id]: e.target.value }))}
+                style={{ width: 140 }}
+              >
+                <option value="">Select type…</option>
+                {POKEMON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => handleSave(card)}
+                disabled={!selectedType[card.id] || savingId === card.id}
+              >
+                {savingId === card.id ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
