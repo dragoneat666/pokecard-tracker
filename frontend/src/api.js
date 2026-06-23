@@ -46,9 +46,10 @@ export const api = {
     update:      (id, data) => request('PATCH', `/sets/${id}`, data),
     parentSets:  ()         => request('GET',   '/sets/parents'),
     children:    (id)       => request('GET',   `/sets/children/${id}`),
-    searchMcap:  (id, q)    => request('GET',   `/sets/${id}/search-mcap?q=${encodeURIComponent(q)}`),
     importAlternate: (id, data) => request('POST', `/sets/${id}/import-alternate`, data),
     missingType: (id) => request('GET', `/sets/${id}/missing-type`),
+    searchSource: (sourceSetId, q) => request('GET', `/sets/search-source?source_set_id=${sourceSetId}&q=${encodeURIComponent(q)}`),
+    mcapId: () => request('GET', '/sets/mcap-id'),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────

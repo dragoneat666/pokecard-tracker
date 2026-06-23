@@ -53,23 +53,15 @@ router.get('/children/:parentId', async (req, res, next) => {
   }
 });
 
-// ─── GET /api/sets/:id/search-mcap ────────────────────────────────────────────
-// Searches the Miscellaneous Cards & Products set (MCAP) for cards that look
-// like alternate-art versions of cards in the target set. Matching is loose —
-// MCAP names embed the original card number like "Larry's Komala - 175/217
-// (Cosmo Holo)" so we extract that and compare against a query.
-router.get('/:id/search-mcap', async (req, res, next) => {
+// ─── GET /api/sets/search-source ──────────────────────────────────────────────
+// Searches cards within a specific already-imported set, by name or number.
+// Used by the Import Card tab to find cards (e.g. MCAP alternates) to copy
+// into the current set.
+router.get('/search-source', async (req, res, next) => {
   try {
-    const { q } = req.query;
+    const { source_set_id, q } = req.query;
+    if (!source_set_id) return res.status(400).json({ error: 'source_set_id is required' });
     if (!q) return res.status(400).json({ error: 'q query param required (card number or name)' });
-
-    const { rows: mcapSets } = await query(
-      `SELECT id FROM sets WHERE tcg_id = '2374'`
-    );
-    if (mcapSets.length === 0) {
-      return res.status(404).json({ error: 'MCAP set not imported yet — import "Miscellaneous Cards & Products" first' });
-    }
-    const mcapSetId = mcapSets[0].id;
 
     const { rows } = await query(`
       SELECT id, card_number, name, rarity, image_url, tcgtracking_id
@@ -78,9 +70,24 @@ router.get('/:id/search-mcap', async (req, res, next) => {
         AND (name ILIKE $2 OR card_number ILIKE $2)
       ORDER BY name
       LIMIT 25
-    `, [mcapSetId, `%${q}%`]);
+    `, [source_set_id, `%${q}%`]);
 
     res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/sets/mcap-id ─────────────────────────────────────────────────────
+// Quick lookup so the frontend can jump straight to MCAP without the user
+// having to find it in a dropdown.
+router.get('/mcap-id', async (_req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT id, name FROM sets WHERE tcg_id = '2374'`);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'MCAP not imported yet' });
+    }
+    res.json(rows[0]);
   } catch (err) {
     next(err);
   }
