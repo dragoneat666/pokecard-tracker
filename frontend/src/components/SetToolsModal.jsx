@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 
-const TABS = ['Reimport Set', 'Import Card', 'Move Card', 'Manual Add', 'Edit Type'];
+const TABS = ['Reimport Set', 'Import Card', 'Edit Card', 'Manual Add', 'Edit Type'];
 
 export default function SetToolsModal({ set, onClose, onChanged }) {
   const [activeTab, setActiveTab] = useState('Reimport Set');
@@ -99,7 +99,7 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
             <ImportCardTab setId={set.id} onImported={onChanged} />
           )}
 
-          {activeTab === 'Move Card' && (
+          {activeTab === 'Edit Card' && (
             <MoveCardTab setId={set.id} onMoved={onChanged} />
           )}
 
