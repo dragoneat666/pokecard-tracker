@@ -253,7 +253,7 @@ router.patch('/:id/move', async (req, res, next) => {
 // Used for the manual entry path (sets not in the TCG API, promos, etc.)
 router.post('/', async (req, res, next) => {
   try {
-    const { set_id, card_number, name, pokemon_type, rarity, storage } = req.body;
+    const { set_id, card_number, name, pokemon_type, rarity, storage, is_alternate } = req.body;
 
     if (!set_id || !card_number || !name) {
       return res.status(400).json({
@@ -262,10 +262,17 @@ router.post('/', async (req, res, next) => {
     }
 
     const { rows } = await query(`
-      INSERT INTO cards (set_id, card_number, name, pokemon_type, rarity, storage)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO cards (set_id, card_number, name, pokemon_type, rarity, storage, is_alternate, type_manual)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [set_id, card_number, name, pokemon_type || null, rarity || null, storage || 'binder']);
+    `, [
+      set_id, card_number, name, pokemon_type || null, rarity || null,
+      storage || 'binder', is_alternate ?? false, !!pokemon_type,
+    ]);
+
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
 
     res.status(201).json(rows[0]);
   } catch (err) {
