@@ -2,10 +2,10 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api.js';
 
-const TABS = ['Reimport', 'Search MCAP', 'Move Card', 'Manual Add', 'Edit Type'];
+const TABS = ['Reimport Set', 'Import Card', 'Move Card', 'Manual Add', 'Edit Type'];
 
 export default function SetToolsModal({ set, onClose, onChanged }) {
-  const [activeTab, setActiveTab] = useState('Reimport');
+  const [activeTab, setActiveTab] = useState('Reimport Set');
   const [reimporting, setReimporting] = useState(false);
   const [reimportResult, setReimportResult] = useState(null);
   const [reimportError, setReimportError] = useState(null);
@@ -73,7 +73,7 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
 
         {/* Body */}
         <div style={{ padding: 'var(--space-5)', overflowY: 'auto', flex: 1 }}>
-          {activeTab === 'Reimport' && (
+          {activeTab === 'Reimport Set' && (
             <div>
               <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
                 Re-fetches this set's card list and prices from TCGTracking and PokéWallet.
@@ -95,8 +95,8 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
             </div>
           )}
 
-          {activeTab === 'Search MCAP' && (
-            <SearchMcapTab setId={set.id} onImported={onChanged} />
+          {activeTab === 'Import Card' && (
+            <ImportCardTab setId={set.id} onImported={onChanged} />
           )}
 
           {activeTab === 'Move Card' && (
@@ -120,20 +120,58 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
   );
 }
 
-// ── Search MCAP Tab ───────────────────────────────────────────────────────────
-function SearchMcapTab({ setId, onImported }) {
+// ── Import Card Tab ───────────────────────────────────────────────────────────
+function ImportCardTab({ setId, onImported }) {
+  const [allSets, setAllSets] = useState([]);
+  const [sourceSetId, setSourceSetId] = useState(null);
+  const [sourceSetName, setSourceSetName] = useState(null);
+  const [loadingMcap, setLoadingMcap] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
   const [importingId, setImportingId] = useState(null);
 
+  useEffect(() => {
+    api.sets.list().then(setAllSets).catch(() => {});
+  }, []);
+
+  async function handleQuickMcap() {
+    try {
+      setLoadingMcap(true);
+      setError(null);
+      const mcap = await api.sets.mcapId();
+      setSourceSetId(mcap.id);
+      setSourceSetName(mcap.name);
+      setResults([]);
+      setQuery('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingMcap(false);
+    }
+  }
+
+  function handlePickSet(e) {
+    const id = e.target.value;
+    if (!id) {
+      setSourceSetId(null);
+      setSourceSetName(null);
+      return;
+    }
+    const picked = allSets.find(s => String(s.id) === id);
+    setSourceSetId(picked.id);
+    setSourceSetName(picked.name);
+    setResults([]);
+    setQuery('');
+  }
+
   async function handleSearch() {
-    if (!query.trim()) return;
+    if (!query.trim() || !sourceSetId) return;
     try {
       setSearching(true);
       setError(null);
-      const data = await api.sets.searchMcap(setId, query.trim());
+      const data = await api.sets.searchSource(sourceSetId, query.trim());
       setResults(data);
     } catch (err) {
       setError(err.message);
@@ -145,7 +183,7 @@ function SearchMcapTab({ setId, onImported }) {
   async function handleImport(card) {
     try {
       setImportingId(card.id);
-      // Try to extract a card number embedded in the MCAP name, e.g.
+      // Try to extract a card number embedded in the source name, e.g.
       // "Larry's Komala - 175/217 (Cosmo Holo)" → "175/217"
       const match = card.name.match(/(\d+\/\d+)/);
       const cardNumber = match ? match[1] : card.card_number;
@@ -166,23 +204,46 @@ function SearchMcapTab({ setId, onImported }) {
   return (
     <div>
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
-        Search Miscellaneous Cards &amp; Products (MCAP) for alternate art versions of cards in this set —
-        try a card name or number like "Komala" or "175/217".
+        Import a card from another already-imported set — it'll be copied into this set's
+        Alternates section. Most often used for Miscellaneous Cards &amp; Products (MCAP)
+        alternate-art versions.
       </p>
 
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-        <input
-          className="input"
-          placeholder="Search by name or card number…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
-          style={{ flex: 1 }}
-        />
-        <button className="btn btn-primary" onClick={handleSearch} disabled={searching}>
-          {searching ? 'Searching…' : 'Search'}
+      {/* Source set picker */}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-primary btn-sm" onClick={handleQuickMcap} disabled={loadingMcap}>
+          {loadingMcap ? 'Loading…' : '⚡ Import from MCAP'}
         </button>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>or</span>
+        <select className="input" style={{ width: 260 }} value={sourceSetId || ''} onChange={handlePickSet}>
+          <option value="">Choose a different set…</option>
+          {allSets.filter(s => s.id !== setId).map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
       </div>
+
+      {sourceSetId && (
+        <>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-3)' }}>
+            Searching within: <strong>{sourceSetName}</strong>
+          </div>
+
+          <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+            <input
+              className="input"
+              placeholder="Search by name or card number…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn btn-primary" onClick={handleSearch} disabled={searching}>
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+        </>
+      )}
 
       {error && (
         <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
@@ -190,7 +251,7 @@ function SearchMcapTab({ setId, onImported }) {
         </div>
       )}
 
-      {results.length === 0 && !searching && (
+      {sourceSetId && results.length === 0 && !searching && (
         <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
           No results yet — try a search above.
         </div>
