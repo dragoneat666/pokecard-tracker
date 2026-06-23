@@ -332,6 +332,20 @@ function MoveCardTab({ setId, onMoved }) {
     }
   }
 
+async function handleDelete(card) {
+    if (!confirm(`Delete "${card.name}" (${card.card_number}) permanently? This cannot be undone.`)) return;
+    try {
+      setMovingId(card.id);
+      await api.cards.delete(card.id);
+      setResults(prev => prev.filter(c => c.id !== card.id));
+      onMoved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMovingId(null);
+    }
+  }
+
   // Build the list of valid destinations: this set's main/alternates,
   // plus each subset's main/alternates.
   const destinations = [
@@ -409,6 +423,14 @@ function MoveCardTab({ setId, onMoved }) {
               disabled={!destination[card.id] || movingId === card.id}
             >
               {movingId === card.id ? 'Moving…' : 'Move'}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => handleDelete(card)}
+              disabled={movingId === card.id}
+              style={{ color: 'var(--danger)' }}
+            >
+              🗑 Delete
             </button>
           </div>
         ))}
