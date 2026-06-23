@@ -520,6 +520,7 @@ export default function SetView() {
                         { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
                         { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total' },
                       ] : []),
+                      { label: 'Notes' },
                     ].map(({ label }) => (
                       <th key={label} style={{ ...thStyle, color: 'var(--text-secondary)' }}>{label}</th>
                     ))}
@@ -533,6 +534,7 @@ export default function SetView() {
                       zebra={idx % 2 === 1}
                       variantType={setData?.variant_type}
                       showVariantCol={showVariantCol}
+                      showNotesCol={true}
                       onOwnedChange={handleOwnedChange}
                       onReverseOwnedChange={handleReverseOwnedChange}
                       onStorageChange={handleStorageChange}

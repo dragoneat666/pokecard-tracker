@@ -12,7 +12,7 @@ import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
+const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, showNotesCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
   const [hovered, setHovered] = useState(false);
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
@@ -199,6 +199,28 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol
             </span>
           </td>
         </>
+      )}
+
+      {/* Notes — alternates table only */}
+      {showNotesCol && (
+        <td style={{ ...tdStyle, maxWidth: 220 }}>
+          {card.notes ? (
+            card.notes_url ? (
+              <a
+                href={card.notes_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'underline', fontSize: '0.8rem' }}
+              >
+                {card.notes}
+              </a>
+            ) : (
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{card.notes}</span>
+            )
+          ) : (
+            <span style={{ color: 'var(--text-muted)' }}>—</span>
+          )}
+        </td>
       )}
     </tr>
   );
