@@ -100,9 +100,7 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
           )}
 
           {activeTab === 'Move Card' && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-              Coming soon.
-            </div>
+            <MoveCardTab setId={set.id} onMoved={onChanged} />
           )}
 
           {activeTab === 'Manual Add' && (
@@ -279,6 +277,138 @@ function ImportCardTab({ setId, onImported }) {
               disabled={importingId === card.id}
             >
               {importingId === card.id ? 'Importing…' : '+ Import'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Move Card Tab ─────────────────────────────────────────────────────────────
+function MoveCardTab({ setId, onMoved }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState(null);
+  const [movingId, setMovingId] = useState(null);
+  const [destination, setDestination] = useState({});
+  const [subsets, setSubsets] = useState([]);
+
+  useEffect(() => {
+    api.sets.children(setId).then(setSubsets).catch(() => {});
+  }, [setId]);
+
+  async function handleSearch() {
+    if (!query.trim()) return;
+    try {
+      setSearching(true);
+      setError(null);
+      const data = await api.sets.searchOwnCards(setId, query.trim());
+      setResults(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function handleMove(card) {
+    const dest = destination[card.id];
+    if (!dest) return;
+    const [targetSetId, table] = dest.split('|'); // e.g. "93|alternate" or "93|main"
+    try {
+      setMovingId(card.id);
+      await api.cards.move(card.id, {
+        target_set_id: Number(targetSetId),
+        is_alternate: table === 'alternate',
+      });
+      setResults(prev => prev.filter(c => c.id !== card.id));
+      onMoved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMovingId(null);
+    }
+  }
+
+  // Build the list of valid destinations: this set's main/alternates,
+  // plus each subset's main/alternates.
+  const destinations = [
+    { value: `${setId}|main`,      label: 'Main' },
+    { value: `${setId}|alternate`, label: 'Alternates' },
+    ...subsets.flatMap(s => [
+      { value: `${s.id}|main`,      label: `${s.name} — Main` },
+      { value: `${s.id}|alternate`, label: `${s.name} — Alternates` },
+    ]),
+  ];
+
+  return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+        Find a card currently in this set (main, a subset, or alternates) and move it to a
+        different table — most often used to relocate a misprint or promo into Alternates.
+      </p>
+
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        <input
+          className="input"
+          placeholder="Search by name or card number…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-primary" onClick={handleSearch} disabled={searching}>
+          {searching ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+          {error}
+        </div>
+      )}
+
+      {results.length === 0 && !searching && (
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+          No results yet — try a search above.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {results.map(card => (
+          <div
+            key={card.id}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)',
+              padding: 'var(--space-3)', background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{card.name}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {card.card_number} · Currently in: {card.set_name} ({card.is_alternate ? 'Alternates' : 'Main'})
+              </div>
+            </div>
+            <select
+              className="input"
+              style={{ width: 200 }}
+              value={destination[card.id] || ''}
+              onChange={e => setDestination(prev => ({ ...prev, [card.id]: e.target.value }))}
+            >
+              <option value="">Move to…</option>
+              {destinations.map(d => (
+                <option key={d.value} value={d.value}>{d.label}</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleMove(card)}
+              disabled={!destination[card.id] || movingId === card.id}
+            >
+              {movingId === card.id ? 'Moving…' : 'Move'}
             </button>
           </div>
         ))}

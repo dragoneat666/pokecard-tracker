@@ -50,6 +50,7 @@ export const api = {
     missingType: (id) => request('GET', `/sets/${id}/missing-type`),
     searchSource: (sourceSetId, q) => request('GET', `/sets/search-source?source_set_id=${sourceSetId}&q=${encodeURIComponent(q)}`),
     mcapId: () => request('GET', '/sets/mcap-id'),
+    searchOwnCards: (id, q) => request('GET', `/sets/${id}/search-own-cards?q=${encodeURIComponent(q)}`),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
@@ -62,6 +63,7 @@ export const api = {
     create:          (data)         => request('POST',  '/cards',                     data),
     delete:          (id)           => request('DELETE',`/cards/${id}`),
     setType: (id, pokemon_type) => request('PATCH', `/cards/${id}/type`, { pokemon_type }),
+    move: (id, data) => request('PATCH', `/cards/${id}/move`, data),
   },
 
   // ── Prices ────────────────────────────────────────────────────────────────

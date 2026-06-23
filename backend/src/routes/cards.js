@@ -220,6 +220,34 @@ router.patch('/:id/type', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/cards/:id/move ────────────────────────────────────────────────
+// Moves a card between main/alternates within its set family, or to a
+// completely different set. Used by the Move Card tab in Set Tools.
+router.patch('/:id/move', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { target_set_id, is_alternate } = req.body;
+
+    const { rows } = await query(`
+      UPDATE cards SET
+        set_id       = COALESCE($1, set_id),
+        is_alternate = COALESCE($2, is_alternate)
+      WHERE id = $3
+      RETURNING *
+    `, [target_set_id ?? null, is_alternate ?? null, id]);
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/cards ──────────────────────────────────────────────────────────
 // Manually add a single card to a set.
 // Used for the manual entry path (sets not in the TCG API, promos, etc.)
