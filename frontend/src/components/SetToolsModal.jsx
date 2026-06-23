@@ -236,7 +236,7 @@ function EditTypeTab({ setId, onChanged }) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [savingId, setSavingId] = useState(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [selectedType, setSelectedType] = useState({});
 
   useEffect(() => {
@@ -255,18 +255,21 @@ function EditTypeTab({ setId, onChanged }) {
     }
   }
 
-  async function handleSave(card) {
-    const type = selectedType[card.id];
-    if (!type) return;
+  async function handleSaveAll() {
+    const entries = Object.entries(selectedType).filter(([, type]) => type);
+    if (entries.length === 0) return;
     try {
-      setSavingId(card.id);
-      await api.cards.setType(card.id, type);
-      setCards(prev => prev.filter(c => c.id !== card.id));
+      setSavingAll(true);
+      setError(null);
+      await Promise.all(entries.map(([cardId, type]) => api.cards.setType(cardId, type)));
+      const savedIds = new Set(entries.map(([cardId]) => Number(cardId)));
+      setCards(prev => prev.filter(c => !savedIds.has(c.id)));
+      setSelectedType({});
       onChanged();
     } catch (err) {
       setError(err.message);
     } finally {
-      setSavingId(null);
+      setSavingAll(false);
     }
   }
 
@@ -317,15 +320,20 @@ function EditTypeTab({ setId, onChanged }) {
                 <option value="">Select type…</option>
                 {POKEMON_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => handleSave(card)}
-                disabled={!selectedType[card.id] || savingId === card.id}
-              >
-                {savingId === card.id ? 'Saving…' : 'Save'}
-              </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {cards.length > 0 && (
+        <div style={{ marginTop: 'var(--space-4)', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSaveAll}
+            disabled={savingAll || Object.values(selectedType).filter(Boolean).length === 0}
+          >
+            {savingAll ? 'Saving…' : `Save All (${Object.values(selectedType).filter(Boolean).length})`}
+          </button>
         </div>
       )}
     </div>
