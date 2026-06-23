@@ -66,6 +66,12 @@ CREATE TABLE cards (
   is_alternate  BOOLEAN NOT NULL DEFAULT false,
   type_manual   BOOLEAN NOT NULL DEFAULT false,
 
+  -- Free-text context for alternate cards (e.g. "Cosmo Holo variant" or
+  -- "1999 misprint") plus an optional reference link (typically Bulbapedia).
+  -- Only ever shown/edited for is_alternate = true rows.
+  notes         TEXT,
+  notes_url     TEXT,
+
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 

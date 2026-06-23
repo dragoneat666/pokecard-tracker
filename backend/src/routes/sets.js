@@ -242,6 +242,7 @@ router.get('/:id', async (req, res, next) => {
         c.id, c.card_number, c.name, c.pokemon_type, c.rarity,
         c.storage, c.condition, c.stage, c.owned, c.has_extra,
         c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
+        c.notes, c.notes_url,
         COALESCE(rh.owned, 0) AS reverse_owned,
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,

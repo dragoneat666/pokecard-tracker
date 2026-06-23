@@ -248,12 +248,31 @@ router.patch('/:id/move', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/cards/:id/notes ───────────────────────────────────────────────
+// Updates the notes/notes_url for an alternate card.
+router.patch('/:id/notes', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { notes, notes_url } = req.body;
+
+    const { rows } = await query(
+      'UPDATE cards SET notes = $1, notes_url = $2 WHERE id = $3 RETURNING *',
+      [notes || null, notes_url || null, id]
+    );
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/cards ──────────────────────────────────────────────────────────
 // Manually add a single card to a set.
 // Used for the manual entry path (sets not in the TCG API, promos, etc.)
 router.post('/', async (req, res, next) => {
   try {
-    const { set_id, card_number, name, pokemon_type, rarity, storage, is_alternate } = req.body;
+    const { set_id, card_number, name, pokemon_type, rarity, storage, is_alternate, notes, notes_url } = req.body;
 
     if (!set_id || !card_number || !name) {
       return res.status(400).json({
@@ -262,12 +281,13 @@ router.post('/', async (req, res, next) => {
     }
 
     const { rows } = await query(`
-      INSERT INTO cards (set_id, card_number, name, pokemon_type, rarity, storage, is_alternate, type_manual)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO cards (set_id, card_number, name, pokemon_type, rarity, storage, is_alternate, type_manual, notes, notes_url)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
     `, [
       set_id, card_number, name, pokemon_type || null, rarity || null,
       storage || 'binder', is_alternate ?? false, !!pokemon_type,
+      notes || null, notes_url || null,
     ]);
 
     query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
