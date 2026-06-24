@@ -109,6 +109,41 @@ router.get('/quick-sources', async (_req, res, next) => {
   }
 });
 
+// ─── GET /api/sets/search-quick-sources ───────────────────────────────────────
+// Searches across all known "quick import" source sets (MCAP, Blister
+// Exclusives, Alt Art Promos, Deck Exclusives, ...) in a single query.
+// Add new tcg_ids to QUICK_SOURCE_TCG_IDS above to include them here too.
+router.get('/search-quick-sources', async (req, res, next) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: 'q query param required' });
+
+    const ids = Object.values(QUICK_SOURCE_TCG_IDS);
+    const { rows: sourceSets } = await query(
+      `SELECT id, name, tcg_id FROM sets WHERE tcg_id = ANY($1)`,
+      [ids]
+    );
+    if (sourceSets.length === 0) {
+      return res.json([]);
+    }
+
+    const sourceSetIds = sourceSets.map(s => s.id);
+    const { rows } = await query(`
+      SELECT c.id, c.card_number, c.name, c.rarity, c.image_url, c.tcgtracking_id, s.name AS source_set_name
+      FROM cards c
+      JOIN sets s ON s.id = c.set_id
+      WHERE c.set_id = ANY($1)
+        AND (c.name ILIKE $2 OR c.card_number ILIKE $2)
+      ORDER BY s.name, c.name
+      LIMIT 50
+    `, [sourceSetIds, `%${q}%`]);
+
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── GET /api/sets/:id/search-own-cards ───────────────────────────────────────
 // Searches cards within this set's own family (main, subsets, alternates)
 // by name or number. Used by the Move Card tab to find a card to relocate.

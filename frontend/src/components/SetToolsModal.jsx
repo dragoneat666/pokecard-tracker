@@ -121,8 +121,8 @@ function ImportCardTab({ setId, onImported }) {
   const [allSets, setAllSets] = useState([]);
   const [sourceSetId, setSourceSetId] = useState(null);
   const [sourceSetName, setSourceSetName] = useState(null);
-  const [loadingQuick, setLoadingQuick] = useState(false);
-  const [quickSources, setQuickSources] = useState({});
+  const [quickQuery, setQuickQuery] = useState('');
+  const [searchingQuick, setSearchingQuick] = useState(false);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -133,20 +133,20 @@ function ImportCardTab({ setId, onImported }) {
     api.sets.list().then(setAllSets).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    api.sets.quickSources().then(setQuickSources).catch(() => {});
-  }, []);
-
-  function handleQuickPick(key) {
-    const source = quickSources[key];
-    if (!source) {
-      setError(`That set hasn't been imported yet — add it from the dashboard first.`);
-      return;
+  async function handleQuickSearch() {
+    if (!quickQuery.trim()) return;
+    try {
+      setSearchingQuick(true);
+      setError(null);
+      const data = await api.sets.searchQuickSources(quickQuery.trim());
+      setResults(data);
+      setSourceSetId(null);
+      setSourceSetName(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearchingQuick(false);
     }
-    setSourceSetId(source.id);
-    setSourceSetName(source.name);
-    setResults([]);
-    setQuery('');
   }
 
   function handlePickSet(e) {
@@ -202,29 +202,28 @@ function ImportCardTab({ setId, onImported }) {
     <div>
       <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
         Import a card from another already-imported set — it'll be copied into this set's
-        Alternates section. Most often used for Miscellaneous Cards &amp; Products (MCAP)
-        alternate-art versions.
+        Alternates section. The quick search checks MCAP, Blister Exclusives, Alt Art Promos,
+        and Deck Exclusives all at once.
       </p>
 
-      {/* Source set picker */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
-        {[
-          { key: 'mcap', label: 'MCAP' },
-          { key: 'blister_exclusives', label: 'Blister Exclusives' },
-          { key: 'alt_art_promos', label: 'Alt Art Promos' },
-          { key: 'deck_exclusives', label: 'Deck Exclusives' },
-        ].map(({ key, label }) => (
-          <button
-            key={key}
-            className="btn btn-primary btn-sm"
-            onClick={() => handleQuickPick(key)}
-          >
-            ⚡ {label}
-          </button>
-        ))}
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>or</span>
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        <input
+          className="input"
+          placeholder="Search by name or card number across all quick sources…"
+          value={quickQuery}
+          onChange={e => setQuickQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleQuickSearch(); }}
+          style={{ flex: 1 }}
+        />
+        <button className="btn btn-primary" onClick={handleQuickSearch} disabled={searchingQuick}>
+          {searchingQuick ? 'Searching…' : '⚡ Search All Quick Sources'}
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>or search a specific set:</span>
         <select className="input" style={{ width: 260 }} value={sourceSetId || ''} onChange={handlePickSet}>
-          <option value="">Choose a different set…</option>
+          <option value="">Choose a set…</option>
           {allSets.filter(s => s.id !== setId).map(s => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -259,7 +258,7 @@ function ImportCardTab({ setId, onImported }) {
         </div>
       )}
 
-      {sourceSetId && results.length === 0 && !searching && (
+      {results.length === 0 && !searching && !searchingQuick && (
         <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
           No results yet — try a search above.
         </div>
@@ -279,6 +278,7 @@ function ImportCardTab({ setId, onImported }) {
               <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{card.name}</div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {card.card_number} · {card.rarity || 'Unknown rarity'}
+                {card.source_set_name ? ` · ${card.source_set_name}` : ''}
               </div>
             </div>
             <button

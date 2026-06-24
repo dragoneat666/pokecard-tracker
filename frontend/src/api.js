@@ -51,6 +51,7 @@ export const api = {
     searchSource: (sourceSetId, q) => request('GET', `/sets/search-source?source_set_id=${sourceSetId}&q=${encodeURIComponent(q)}`),
     quickSources: () => request('GET', '/sets/quick-sources'),
     searchOwnCards: (id, q) => request('GET', `/sets/${id}/search-own-cards?q=${encodeURIComponent(q)}`),
+    searchQuickSources: (q) => request('GET', `/sets/search-quick-sources?q=${encodeURIComponent(q)}`),
   },
 
   // ── Cards ──────────────────────────────────────────────────────────────────
