@@ -78,16 +78,32 @@ router.get('/search-source', async (req, res, next) => {
   }
 });
 
-// ─── GET /api/sets/mcap-id ─────────────────────────────────────────────────────
-// Quick lookup so the frontend can jump straight to MCAP without the user
-// having to find it in a dropdown.
-router.get('/mcap-id', async (_req, res, next) => {
+// ─── GET /api/sets/quick-sources ──────────────────────────────────────────────
+// Returns the DB id/name for each known "quick import" source set (MCAP,
+// Blister Exclusives, Alternate Art Promos, Deck Exclusives), if imported.
+// Used to power the quick-pick buttons in the Import Card tab.
+const QUICK_SOURCE_TCG_IDS = {
+  mcap:               '2374',
+  blister_exclusives: '2289',
+  alt_art_promos:     '1938',
+  deck_exclusives:    '1840',
+};
+
+router.get('/quick-sources', async (_req, res, next) => {
   try {
-    const { rows } = await query(`SELECT id, name FROM sets WHERE tcg_id = '2374'`);
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'MCAP not imported yet' });
-    }
-    res.json(rows[0]);
+    const ids = Object.values(QUICK_SOURCE_TCG_IDS);
+    const { rows } = await query(
+      `SELECT id, name, tcg_id FROM sets WHERE tcg_id = ANY($1)`,
+      [ids]
+    );
+
+    // Map back to friendly keys so the frontend doesn't need to know tcg_ids
+    const byTcgId = Object.fromEntries(rows.map(r => [r.tcg_id, r]));
+    const result = Object.fromEntries(
+      Object.entries(QUICK_SOURCE_TCG_IDS).map(([key, tcgId]) => [key, byTcgId[tcgId] || null])
+    );
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

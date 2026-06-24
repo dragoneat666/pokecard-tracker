@@ -121,7 +121,8 @@ function ImportCardTab({ setId, onImported }) {
   const [allSets, setAllSets] = useState([]);
   const [sourceSetId, setSourceSetId] = useState(null);
   const [sourceSetName, setSourceSetName] = useState(null);
-  const [loadingMcap, setLoadingMcap] = useState(false);
+  const [loadingQuick, setLoadingQuick] = useState(false);
+  const [quickSources, setQuickSources] = useState({});
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -132,20 +133,20 @@ function ImportCardTab({ setId, onImported }) {
     api.sets.list().then(setAllSets).catch(() => {});
   }, []);
 
-  async function handleQuickMcap() {
-    try {
-      setLoadingMcap(true);
-      setError(null);
-      const mcap = await api.sets.mcapId();
-      setSourceSetId(mcap.id);
-      setSourceSetName(mcap.name);
-      setResults([]);
-      setQuery('');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoadingMcap(false);
+  useEffect(() => {
+    api.sets.quickSources().then(setQuickSources).catch(() => {});
+  }, []);
+
+  function handleQuickPick(key) {
+    const source = quickSources[key];
+    if (!source) {
+      setError(`That set hasn't been imported yet — add it from the dashboard first.`);
+      return;
     }
+    setSourceSetId(source.id);
+    setSourceSetName(source.name);
+    setResults([]);
+    setQuery('');
   }
 
   function handlePickSet(e) {
@@ -207,9 +208,20 @@ function ImportCardTab({ setId, onImported }) {
 
       {/* Source set picker */}
       <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-primary btn-sm" onClick={handleQuickMcap} disabled={loadingMcap}>
-          {loadingMcap ? 'Loading…' : '⚡ Import from MCAP'}
-        </button>
+        {[
+          { key: 'mcap', label: 'MCAP' },
+          { key: 'blister_exclusives', label: 'Blister Exclusives' },
+          { key: 'alt_art_promos', label: 'Alt Art Promos' },
+          { key: 'deck_exclusives', label: 'Deck Exclusives' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            className="btn btn-primary btn-sm"
+            onClick={() => handleQuickPick(key)}
+          >
+            ⚡ {label}
+          </button>
+        ))}
         <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>or</span>
         <select className="input" style={{ width: 260 }} value={sourceSetId || ''} onChange={handlePickSet}>
           <option value="">Choose a different set…</option>
