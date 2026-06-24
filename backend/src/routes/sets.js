@@ -103,7 +103,7 @@ router.get('/:id/search-own-cards', async (req, res, next) => {
     if (!q) return res.status(400).json({ error: 'q query param required' });
 
     const { rows } = await query(`
-      SELECT c.id, c.card_number, c.name, c.rarity, c.is_alternate, c.set_id, s.name AS set_name
+      SELECT c.id, c.card_number, c.name, c.rarity, c.is_alternate, c.set_id, c.notes, c.notes_url, s.name AS set_name
       FROM cards c
       JOIN sets s ON s.id = c.set_id
       WHERE (c.set_id = $1 OR s.parent_set_id = $1)

@@ -64,6 +64,7 @@ export const api = {
     delete:          (id)           => request('DELETE',`/cards/${id}`),
     setType: (id, pokemon_type) => request('PATCH', `/cards/${id}/type`, { pokemon_type }),
     move: (id, data) => request('PATCH', `/cards/${id}/move`, data),
+    setNotes: (id, data) => request('PATCH', `/cards/${id}/notes`, data),
   },
 
   // ── Prices ────────────────────────────────────────────────────────────────

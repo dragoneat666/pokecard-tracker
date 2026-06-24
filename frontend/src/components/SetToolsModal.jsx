@@ -292,6 +292,9 @@ function MoveCardTab({ setId, onMoved }) {
   const [movingId, setMovingId] = useState(null);
   const [destination, setDestination] = useState({});
   const [subsets, setSubsets] = useState([]);
+  const [editingNotesId, setEditingNotesId] = useState(null);
+  const [notesDraft, setNotesDraft] = useState({});
+  const [savingNotesId, setSavingNotesId] = useState(null);
 
   useEffect(() => {
     api.sets.children(setId).then(setSubsets).catch(() => {});
@@ -327,6 +330,23 @@ function MoveCardTab({ setId, onMoved }) {
       setError(err.message);
     } finally {
       setMovingId(null);
+    }
+  }
+
+async function handleSaveNotes(card) {
+    const draft = notesDraft[card.id] || {};
+    try {
+      setSavingNotesId(card.id);
+      await api.cards.setNotes(card.id, {
+        notes: draft.notes ?? card.notes ?? '',
+        notes_url: draft.notes_url ?? card.notes_url ?? '',
+      });
+      setEditingNotesId(null);
+      onMoved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingNotesId(null);
     }
   }
 
@@ -422,6 +442,14 @@ async function handleDelete(card) {
             >
               {movingId === card.id ? 'Moving…' : 'Move'}
             </button>
+            {card.is_alternate && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setEditingNotesId(editingNotesId === card.id ? null : card.id)}
+              >
+                📝 Notes
+              </button>
+            )}
             <button
               className="btn btn-ghost btn-sm"
               onClick={() => handleDelete(card)}
@@ -433,6 +461,42 @@ async function handleDelete(card) {
           </div>
         ))}
       </div>
+
+      {results.filter(c => editingNotesId === c.id).map(card => (
+        <div
+          key={`notes-${card.id}`}
+          style={{
+            marginTop: 'var(--space-2)', padding: 'var(--space-3)',
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-md)',
+          }}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+            <label>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>Notes</div>
+              <input
+                className="input"
+                defaultValue={card.notes || ''}
+                onChange={e => setNotesDraft(prev => ({ ...prev, [card.id]: { ...prev[card.id], notes: e.target.value } }))}
+              />
+            </label>
+            <label>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>Notes Link</div>
+              <input
+                className="input"
+                defaultValue={card.notes_url || ''}
+                onChange={e => setNotesDraft(prev => ({ ...prev, [card.id]: { ...prev[card.id], notes_url: e.target.value } }))}
+              />
+            </label>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditingNotesId(null)}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={() => handleSaveNotes(card)} disabled={savingNotesId === card.id}>
+              {savingNotesId === card.id ? 'Saving…' : 'Save Notes'}
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
