@@ -9,6 +9,9 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
   const [reimporting, setReimporting] = useState(false);
   const [reimportResult, setReimportResult] = useState(null);
   const [reimportError, setReimportError] = useState(null);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [refreshResult, setRefreshResult] = useState(null);
+  const [refreshError, setRefreshError] = useState(null);
 
   async function handleReimport() {
     try {
@@ -22,6 +25,21 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
       setReimportError(err.message);
     } finally {
       setReimporting(false);
+    }
+  }
+
+  async function handleRefreshPrices() {
+    try {
+      setRefreshingPrices(true);
+      setRefreshError(null);
+      setRefreshResult(null);
+      await api.prices.refresh(set.id);
+      setRefreshResult('Price refresh started — give it a few seconds, then reload.');
+      onChanged();
+    } catch (err) {
+      setRefreshError(err.message);
+    } finally {
+      setRefreshingPrices(false);
     }
   }
 
@@ -92,6 +110,31 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
               <button className="btn btn-primary" onClick={handleReimport} disabled={reimporting}>
                 {reimporting ? 'Reimporting…' : '↻ Reimport Set'}
               </button>
+
+              <div style={{ marginTop: 'var(--space-5)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--border)' }}>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+                  Refresh just the prices (market prices, plus graded prices for any graded cards in this set)
+                  without re-fetching the card list itself.
+                </p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 'var(--space-3)' }}>
+                  Note: graded prices are rate-limited to a small number of lookups per day across the whole
+                  app. If today's limit is reached, any remaining graded cards will update on the next
+                  scheduled refresh instead.
+                </p>
+                {refreshError && (
+                  <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+                    {refreshError}
+                  </div>
+                )}
+                {refreshResult && (
+                  <div style={{ color: 'var(--success)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>
+                    {refreshResult}
+                  </div>
+                )}
+                <button className="btn btn-ghost" onClick={handleRefreshPrices} disabled={refreshingPrices}>
+                  {refreshingPrices ? 'Refreshing…' : '↻ Refresh Prices'}
+                </button>
+              </div>
             </div>
           )}
 
