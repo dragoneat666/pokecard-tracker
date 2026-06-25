@@ -16,6 +16,7 @@
 
 import { Router } from 'express';
 import { query } from '../db.js';
+import { getGradedPricesByTcgPlayerId } from '../utils/gradedPricing.js';
 
 const router = Router();
 
@@ -261,6 +262,62 @@ router.patch('/:id/notes', async (req, res, next) => {
     );
 
     if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/cards/:id/graded-prices ─────────────────────────────────────────
+// Fetches eBay graded sale prices (PSA/BGS/CGC/ACE/TAG) for a card from
+// pokemon-api.com, keyed by its tcgtracking_id (= TCGPlayer product id).
+// Hard rate-limited — see utils/rateLimiter.js.
+router.get('/:id/graded-prices', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await query('SELECT tcgtracking_id, name, card_number FROM cards WHERE id = $1', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+
+    const card = rows[0];
+    if (!card.tcgtracking_id) {
+      return res.status(400).json({ error: 'This card has no tcgtracking_id — graded lookup requires a TCGPlayer-linked card.' });
+    }
+
+    const result = await getGradedPricesByTcgPlayerId(card.tcgtracking_id);
+    if (!result || !result.graded) {
+      return res.json({ found: false, graded: null });
+    }
+
+    res.json({ found: true, graded: result.graded, raw_market_price: result.raw_market_price });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/cards/:id/graded ───────────────────────────────────────────────
+// Sets a card's graded status, company, grade, and the chosen price.
+router.patch('/:id/graded', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { is_graded, grading_company, grade, graded_price } = req.body;
+
+    const { rows } = await query(`
+      UPDATE cards SET
+        is_graded       = $1,
+        grading_company = $2,
+        grade           = $3,
+        graded_price    = $4
+      WHERE id = $5
+      RETURNING *
+    `, [is_graded ?? false, grading_company || null, grade || null, graded_price || null, id]);
+
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
+
     res.json(rows[0]);
   } catch (err) {
     next(err);

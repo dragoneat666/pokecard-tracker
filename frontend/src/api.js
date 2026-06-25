@@ -66,6 +66,8 @@ export const api = {
     setType: (id, pokemon_type) => request('PATCH', `/cards/${id}/type`, { pokemon_type }),
     move: (id, data) => request('PATCH', `/cards/${id}/move`, data),
     setNotes: (id, data) => request('PATCH', `/cards/${id}/notes`, data),
+    gradedPrices: (id) => request('GET', `/cards/${id}/graded-prices`),
+    setGraded: (id, data) => request('PATCH', `/cards/${id}/graded`, data),
   },
 
   // ── Prices ────────────────────────────────────────────────────────────────

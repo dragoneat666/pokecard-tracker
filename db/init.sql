@@ -72,6 +72,15 @@ CREATE TABLE cards (
   notes         TEXT,
   notes_url     TEXT,
 
+  -- Graded card tracking. is_graded flips the displayed/total price to use
+  -- graded_price instead of market_price. graded_price is fetched on-demand
+  -- from a rate-limited third-party API (see utils/rateLimiter.js) since
+  -- TCGTracking and PokéWallet don't provide graded pricing.
+  is_graded        BOOLEAN NOT NULL DEFAULT false,
+  grading_company  TEXT,
+  grade            TEXT,
+  graded_price     NUMERIC(10, 2),
+
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -131,6 +140,18 @@ SELECT DISTINCT ON (card_id)
   fetched_at
 FROM prices
 ORDER BY card_id, fetched_at DESC;
+
+-- ─── API USAGE LOG ────────────────────────────────────────────────────────────
+-- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
+-- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits
+-- or rack up unexpected charges.
+CREATE TABLE api_usage_log (
+  id         SERIAL PRIMARY KEY,
+  api_name   TEXT NOT NULL,
+  call_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+  call_count INT NOT NULL DEFAULT 0,
+  UNIQUE (api_name, call_date)
+);
 
 
 -- ─── DASHBOARD VIEW ──────────────────────────────────────────────────────────
