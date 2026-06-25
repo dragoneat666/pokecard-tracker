@@ -270,10 +270,11 @@ router.get('/:id', async (req, res, next) => {
         c.id, c.card_number, c.name, c.pokemon_type, c.rarity,
         c.storage, c.condition, c.stage, c.owned, c.has_extra,
         c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
+        c.is_graded, c.grading_company, c.grade, c.graded_price,
         COALESCE(rh.owned, 0) AS reverse_owned,
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
-        (cp.market_price * c.owned) AS total_value,
+        (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
         (cp.reverse_holo_price * rh.owned) AS reverse_total_value
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
@@ -294,10 +295,11 @@ router.get('/:id', async (req, res, next) => {
         c.storage, c.condition, c.stage, c.owned, c.has_extra,
         c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
         c.notes, c.notes_url,
+        c.is_graded, c.grading_company, c.grade, c.graded_price,
         COALESCE(rh.owned, 0) AS reverse_owned,
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
-        (cp.market_price * c.owned) AS total_value,
+        (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
         (cp.reverse_holo_price * rh.owned) AS reverse_total_value
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
@@ -319,10 +321,11 @@ router.get('/:id', async (req, res, next) => {
             c.id, c.card_number, c.name, c.pokemon_type, c.rarity,
             c.storage, c.condition, c.stage, c.owned, c.has_extra,
             c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
+            c.is_graded, c.grading_company, c.grade, c.graded_price,
             COALESCE(rh.owned, 0) AS reverse_owned,
             cp.market_price, cp.low_price, cp.reverse_holo_price,
             cp.fetched_at AS price_updated_at,
-            (cp.market_price * c.owned) AS total_value,
+            (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
             (cp.reverse_holo_price * rh.owned) AS reverse_total_value
           FROM cards c
           LEFT JOIN reverse_holos rh ON rh.card_id = c.id
