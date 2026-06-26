@@ -101,7 +101,16 @@ CREATE UNIQUE INDEX idx_cards_tcgtracking_id ON cards(tcgtracking_id) WHERE tcgt
 CREATE TABLE reverse_holos (
   id       SERIAL PRIMARY KEY,
   card_id  INT NOT NULL REFERENCES cards(id) ON DELETE CASCADE UNIQUE,
-  owned    SMALLINT NOT NULL DEFAULT 0 CHECK (owned IN (0, 1, 2))
+  owned    SMALLINT NOT NULL DEFAULT 0 CHECK (owned IN (0, 1, 2)),
+
+  -- Graded tracking for the reverse holo / 1st edition slot, mirroring the
+  -- same four fields on cards (which cover the Regular slot). A slot only
+  -- counts toward owned/pricing totals once BOTH grading_company and grade
+  -- are set — leaving either blank means this slot contributes nothing.
+  is_graded        BOOLEAN NOT NULL DEFAULT false,
+  grading_company  TEXT,
+  grade            TEXT,
+  graded_price     NUMERIC(10, 2)
 );
 
 

@@ -324,6 +324,36 @@ router.patch('/:id/graded', async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/cards/:id/reverse-graded ──────────────────────────────────────
+// Sets graded status/company/grade/price for the REVERSE HOLO / 1ST EDITION
+// slot, stored on the reverse_holos row (upserted, same pattern as
+// reverse-owned, since not every card has a reverse_holos row yet).
+router.patch('/:id/reverse-graded', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { is_graded, grading_company, grade, graded_price } = req.body;
+
+    const { rows } = await query(`
+      INSERT INTO reverse_holos (card_id, is_graded, grading_company, grade, graded_price)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (card_id) DO UPDATE SET
+        is_graded       = EXCLUDED.is_graded,
+        grading_company = EXCLUDED.grading_company,
+        grade           = EXCLUDED.grade,
+        graded_price    = EXCLUDED.graded_price
+      RETURNING *
+    `, [id, is_graded ?? false, grading_company || null, grade || null, graded_price || null]);
+
+    query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
+      console.error('Cache refresh failed:', err.message)
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/cards ──────────────────────────────────────────────────────────
 // Manually add a single card to a set.
 // Used for the manual entry path (sets not in the TCG API, promos, etc.)

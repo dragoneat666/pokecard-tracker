@@ -68,6 +68,7 @@ export const api = {
     setNotes: (id, data) => request('PATCH', `/cards/${id}/notes`, data),
     gradedPrices: (id) => request('GET', `/cards/${id}/graded-prices`),
     setGraded: (id, data) => request('PATCH', `/cards/${id}/graded`, data),
+    setReverseGraded: (id, data) => request('PATCH', `/cards/${id}/reverse-graded`, data),
   },
 
   // ── Prices ────────────────────────────────────────────────────────────────
