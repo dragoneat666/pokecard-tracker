@@ -272,10 +272,12 @@ router.get('/:id', async (req, res, next) => {
         c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
         c.is_graded, c.grading_company, c.grade, c.graded_price,
         COALESCE(rh.owned, 0) AS reverse_owned,
+        rh.is_graded AS reverse_is_graded, rh.grading_company AS reverse_grading_company,
+        rh.grade AS reverse_grade, rh.graded_price AS reverse_graded_price,
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
         (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
-        (cp.reverse_holo_price * rh.owned) AS reverse_total_value
+        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id
@@ -297,10 +299,12 @@ router.get('/:id', async (req, res, next) => {
         c.notes, c.notes_url,
         c.is_graded, c.grading_company, c.grade, c.graded_price,
         COALESCE(rh.owned, 0) AS reverse_owned,
+        rh.is_graded AS reverse_is_graded, rh.grading_company AS reverse_grading_company,
+        rh.grade AS reverse_grade, rh.graded_price AS reverse_graded_price,
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
         (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
-        (cp.reverse_holo_price * rh.owned) AS reverse_total_value
+        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id
@@ -323,10 +327,12 @@ router.get('/:id', async (req, res, next) => {
             c.has_reverse_holo, c.has_first_edition, c.image_url, c.tcgtracking_id,
             c.is_graded, c.grading_company, c.grade, c.graded_price,
             COALESCE(rh.owned, 0) AS reverse_owned,
+            rh.is_graded AS reverse_is_graded, rh.grading_company AS reverse_grading_company,
+            rh.grade AS reverse_grade, rh.graded_price AS reverse_graded_price,
             cp.market_price, cp.low_price, cp.reverse_holo_price,
             cp.fetched_at AS price_updated_at,
             (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
-            (cp.reverse_holo_price * rh.owned) AS reverse_total_value
+            (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value
           FROM cards c
           LEFT JOIN reverse_holos rh ON rh.card_id = c.id
           LEFT JOIN current_prices cp ON cp.card_id = c.id
