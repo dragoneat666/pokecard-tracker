@@ -17,7 +17,11 @@ const GRADE_OPTIONS = [
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, showNotesCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange, onGradedChange }) {
+const CardRow = memo(function CardRow({
+  card, zebra, variantType, showVariantCol, showNotesCol,
+  onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange, onGradedChange,
+  onCheckGradedPrices, checkingGradedId, gradedResultsCardId, gradedOptions, gradedError, onSelectGradedOption, onCloseGradedResults,
+}) {
   const [hovered, setHovered] = useState(false);
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
@@ -191,25 +195,80 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol
       {/* Grade + graded price */}
       <td style={tdStyle}>
         {card.grading_company ? (
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <select
-              className="input"
-              value={card.grade || ''}
-              onChange={e => onGradedChange(card.id, { grade: e.target.value || null })}
-              style={{ padding: '3px 4px', fontSize: '0.78rem', width: 'auto', minWidth: 56 }}
-            >
-              <option value="">Grade</option>
-              {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-            <input
-              className="input"
-              type="number"
-              step="0.01"
-              placeholder="$"
-              value={card.graded_price ?? ''}
-              onChange={e => onGradedChange(card.id, { graded_price: e.target.value ? parseFloat(e.target.value) : null })}
-              style={{ padding: '3px 4px', fontSize: '0.78rem', width: 70 }}
-            />
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <select
+                className="input"
+                value={card.grade || ''}
+                onChange={e => onGradedChange(card.id, { grade: e.target.value || null })}
+                style={{ padding: '3px 4px', fontSize: '0.78rem', width: 'auto', minWidth: 56 }}
+              >
+                <option value="">Grade</option>
+                {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <input
+                className="input"
+                type="number"
+                step="0.01"
+                placeholder="$"
+                value={card.graded_price ?? ''}
+                onChange={e => onGradedChange(card.id, { graded_price: e.target.value ? parseFloat(e.target.value) : null })}
+                style={{ padding: '3px 4px', fontSize: '0.78rem', width: 70 }}
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => onCheckGradedPrices(card.id)}
+                disabled={checkingGradedId === card.id}
+                title="Check eBay graded sale prices"
+                style={{ padding: '2px 6px', fontSize: '0.72rem' }}
+              >
+                {checkingGradedId === card.id ? '…' : '🔍'}
+              </button>
+            </div>
+
+            {gradedResultsCardId === card.id && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, zIndex: 20,
+                marginTop: 4, padding: 'var(--space-2)',
+                background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)', boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+                minWidth: 220, maxHeight: 240, overflowY: 'auto',
+              }}>
+                {gradedError ? (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--danger)', padding: 4 }}>{gradedError}</div>
+                ) : gradedOptions && gradedOptions.length > 0 ? (
+                  <>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>eBay sold prices:</div>
+                    {gradedOptions.map(opt => (
+                      <div
+                        key={`${opt.company}-${opt.gradeNum}`}
+                        onClick={() => onSelectGradedOption(card.id, opt)}
+                        style={{
+                          padding: '4px 6px', fontSize: '0.78rem', cursor: 'pointer',
+                          borderRadius: 4, display: 'flex', justifyContent: 'space-between', gap: 8,
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <span><strong>{opt.company}</strong> {opt.gradeNum}</span>
+                        <span>${opt.price.toFixed(2)} <span style={{ color: 'var(--text-muted)' }}>({opt.sampleSize})</span></span>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: 4 }}>
+                    No graded sales data found for this card.
+                  </div>
+                )}
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => onCloseGradedResults()}
+                  style={{ marginTop: 4, fontSize: '0.7rem', width: '100%' }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <span style={{ color: 'var(--text-muted)' }}>—</span>

@@ -36,6 +36,10 @@ export default function SetView() {
   const [allSets, setAllSets] = useState([]);
   const [alternateCards, setAlternateCards] = useState([]);
   const [showSetTools, setShowSetTools] = useState(false);
+  const [checkingGradedId, setCheckingGradedId] = useState(null);
+  const [gradedResultsCardId, setGradedResultsCardId] = useState(null);
+  const [gradedOptions, setGradedOptions] = useState(null);
+  const [gradedError, setGradedError] = useState(null);
 
   const { toast, showToast } = useToast();
 
@@ -178,6 +182,53 @@ export default function SetView() {
       setAlternateCards(prevAlternateCards);
       showToast(`Failed to update grading: ${err.message}`, 'error');
     }
+  }
+
+  // ── Graded price lookup ─────────────────────────────────────────────────
+  async function handleCheckGradedPrices(cardId) {
+    setCheckingGradedId(cardId);
+    setGradedResultsCardId(cardId);
+    setGradedOptions(null);
+    setGradedError(null);
+    try {
+      const data = await api.cards.gradedPrices(cardId);
+      if (!data.found || !data.graded) {
+        setGradedOptions([]);
+      } else {
+        const flat = [];
+        for (const [company, grades] of Object.entries(data.graded)) {
+          for (const [gradeNum, info] of Object.entries(grades)) {
+            flat.push({
+              company: company.toUpperCase(),
+              gradeNum,
+              price: info.median_price,
+              sampleSize: info.sample_size,
+            });
+          }
+        }
+        setGradedOptions(flat);
+      }
+    } catch (err) {
+      setGradedError(err.message);
+    } finally {
+      setCheckingGradedId(null);
+    }
+  }
+
+  function handleSelectGradedOption(cardId, option) {
+    handleGradedChange(cardId, {
+      grading_company: option.company,
+      grade: option.gradeNum,
+      graded_price: option.price,
+    });
+    setGradedResultsCardId(null);
+    setGradedOptions(null);
+  }
+
+  function handleCloseGradedResults() {
+    setGradedResultsCardId(null);
+    setGradedOptions(null);
+    setGradedError(null);
   }
 
   function handleSort(col) {
@@ -452,6 +503,13 @@ export default function SetView() {
                   onStorageChange={handleStorageChange}
                   onConditionChange={handleConditionChange}
                   onGradedChange={handleGradedChange}
+                  onCheckGradedPrices={handleCheckGradedPrices}
+                  checkingGradedId={checkingGradedId}
+                  gradedResultsCardId={gradedResultsCardId}
+                  gradedOptions={gradedOptions}
+                  gradedError={gradedError}
+                  onSelectGradedOption={handleSelectGradedOption}
+                  onCloseGradedResults={handleCloseGradedResults}
                 />
               ))}
               {sortedCards.length === 0 && (
@@ -522,6 +580,13 @@ export default function SetView() {
                       onStorageChange={handleStorageChange}
                       onConditionChange={handleConditionChange}
                       onGradedChange={handleGradedChange}
+                      onCheckGradedPrices={handleCheckGradedPrices}
+                      checkingGradedId={checkingGradedId}
+                      gradedResultsCardId={gradedResultsCardId}
+                      gradedOptions={gradedOptions}
+                      gradedError={gradedError}
+                      onSelectGradedOption={handleSelectGradedOption}
+                      onCloseGradedResults={handleCloseGradedResults}
                     />
                   ))}
                 </tbody>
@@ -587,6 +652,13 @@ export default function SetView() {
                       onStorageChange={handleStorageChange}
                       onConditionChange={handleConditionChange}
                       onGradedChange={handleGradedChange}
+                      onCheckGradedPrices={handleCheckGradedPrices}
+                      checkingGradedId={checkingGradedId}
+                      gradedResultsCardId={gradedResultsCardId}
+                      gradedOptions={gradedOptions}
+                      gradedError={gradedError}
+                      onSelectGradedOption={handleSelectGradedOption}
+                      onCloseGradedResults={handleCloseGradedResults}
                     />
                   ))}
                 </tbody>
