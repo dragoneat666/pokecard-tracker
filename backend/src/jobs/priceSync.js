@@ -19,6 +19,7 @@
 import cron from 'node-cron';
 import { query } from '../db.js';
 import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
+import { getGradedPricesByTcgPlayerId } from '../utils/gradedPricing.js';
 
 const POKEWALLET_BASE  = 'https://api.pokewallet.io';
 const TCGTRACKING_BASE = 'https://tcgtracking.com/tcgapi/v1/3';
@@ -376,9 +377,56 @@ export async function refreshPricesForSet(setId) {
   }
 
   console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
+
+  // ── Graded price refresh pass ─────────────────────────────────────────────
+  // Walks any cards in this set marked is_graded and refreshes graded_price
+  // from the rate-limited API. Stops silently (no error surfaced) the moment
+  // the daily/per-minute limit is hit — remaining cards pick up on the next run.
+  await refreshGradedPricesForSet(setId);
+
   query('REFRESH MATERIALIZED VIEW CONCURRENTLY set_summary_cache').catch(err =>
     console.error('Cache refresh failed:', err.message)
   );
+}
+
+// ─── REFRESH GRADED PRICES FOR SET ────────────────────────────────────────────
+// Looks up eBay graded sale data for every is_graded card in this set and
+// updates graded_price with the median price matching the card's stored
+// grading_company + grade. Silently stops (no throw) once the rate limiter
+// refuses further calls — this is expected/normal, not an error condition.
+async function refreshGradedPricesForSet(setId) {
+  const { rows: gradedCards } = await query(`
+    SELECT id, name, card_number, tcgtracking_id, grading_company, grade
+    FROM cards
+    WHERE set_id = $1 AND is_graded = true AND tcgtracking_id IS NOT NULL
+  `, [setId]);
+
+  if (gradedCards.length === 0) return;
+
+  console.log(`🏆 Refreshing graded prices for ${gradedCards.length} graded card(s)...`);
+
+  let updated = 0;
+  for (const card of gradedCards) {
+    try {
+      const result = await getGradedPricesByTcgPlayerId(card.tcgtracking_id);
+      if (!result?.graded) continue;
+
+      const companyKey = card.grading_company?.toLowerCase();
+      const gradeInfo = result.graded[companyKey]?.[card.grade];
+      if (!gradeInfo) continue;
+
+      await query('UPDATE cards SET graded_price = $1 WHERE id = $2', [gradeInfo.median_price, card.id]);
+      updated++;
+    } catch (err) {
+      // Rate limit hit (or any other failure) — stop the loop quietly.
+      // Remaining graded cards will be picked up on the next scheduled run
+      // or the next manual refresh.
+      console.log(`   Graded price refresh stopped early: ${err.message}`);
+      break;
+    }
+  }
+
+  console.log(`   ✅ Updated graded prices for ${updated}/${gradedCards.length} cards`);
 }
 
 // ─── SCHEDULED AUTO-REFRESH ───────────────────────────────────────────────────
