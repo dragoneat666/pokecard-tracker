@@ -36,8 +36,8 @@ export default function SetView() {
   const [allSets, setAllSets] = useState([]);
   const [alternateCards, setAlternateCards] = useState([]);
   const [showSetTools, setShowSetTools] = useState(false);
-  const [checkingGradedId, setCheckingGradedId] = useState(null);
-  const [gradedResultsCardId, setGradedResultsCardId] = useState(null);
+  const [checkingGradedId, setCheckingGradedId] = useState(null);   // "${cardId}-regular" | "${cardId}-reverse"
+  const [gradedResultsKey, setGradedResultsKey] = useState(null);   // same composite format
   const [gradedOptions, setGradedOptions] = useState(null);
   const [gradedError, setGradedError] = useState(null);
 
@@ -143,8 +143,7 @@ export default function SetView() {
     }
   }
 
-  // ── Graded card update ───────────────────────────────────────────────────
-  // Called by CardRow when the company, grade, or price field changes.
+  // ── Graded card update (Regular slot) ─────────────────────────────────────
   // is_graded only flips to true once BOTH company and grade are set;
   // clearing either one flips it back to false (so price reverts to market).
   async function handleGradedChange(cardId, patch) {
@@ -163,7 +162,6 @@ export default function SetView() {
     setChildSets(cs => cs.map(({ set, cards }) => ({ set, cards: cards.map(applyPatch) })));
     setAlternateCards(ac => ac.map(applyPatch));
 
-    // Find the merged card to send the full current state to the backend
     const allCards = [...cards, ...childSets.flatMap(cs => cs.cards), ...alternateCards];
     const target = allCards.find(c => c.id === cardId);
     const merged = { ...target, ...patch };
@@ -184,10 +182,59 @@ export default function SetView() {
     }
   }
 
-  // ── Graded price lookup ─────────────────────────────────────────────────
-  async function handleCheckGradedPrices(cardId) {
-    setCheckingGradedId(cardId);
-    setGradedResultsCardId(cardId);
+  // ── Graded card update (Reverse/1st Edition slot) ─────────────────────────
+  // Same logic as above but writes to the reverse_holos row's graded fields.
+  async function handleReverseGradedChange(cardId, patch) {
+    const prev = cards;
+    const prevChildSets = childSets;
+    const prevAlternateCards = alternateCards;
+
+    function applyPatch(card) {
+      if (card.id !== cardId) return card;
+      const mergedCompany = patch.grading_company !== undefined ? patch.grading_company : card.reverse_grading_company;
+      const mergedGrade = patch.grade !== undefined ? patch.grade : card.reverse_grade;
+      const mergedPrice = patch.graded_price !== undefined ? patch.graded_price : card.reverse_graded_price;
+      const isGraded = !!(mergedCompany && mergedGrade);
+      return {
+        ...card,
+        reverse_grading_company: mergedCompany,
+        reverse_grade: mergedGrade,
+        reverse_graded_price: mergedPrice,
+        reverse_is_graded: isGraded,
+      };
+    }
+
+    setCards(c => c.map(applyPatch));
+    setChildSets(cs => cs.map(({ set, cards }) => ({ set, cards: cards.map(applyPatch) })));
+    setAlternateCards(ac => ac.map(applyPatch));
+
+    const allCards = [...cards, ...childSets.flatMap(cs => cs.cards), ...alternateCards];
+    const target = allCards.find(c => c.id === cardId);
+    const mergedCompany = patch.grading_company !== undefined ? patch.grading_company : target.reverse_grading_company;
+    const mergedGrade = patch.grade !== undefined ? patch.grade : target.reverse_grade;
+    const mergedPrice = patch.graded_price !== undefined ? patch.graded_price : target.reverse_graded_price;
+    const isGraded = !!(mergedCompany && mergedGrade);
+
+    try {
+      await api.cards.setReverseGraded(cardId, {
+        is_graded: isGraded,
+        grading_company: mergedCompany || null,
+        grade: mergedGrade || null,
+        graded_price: mergedPrice || null,
+      });
+    } catch (err) {
+      setCards(prev);
+      setChildSets(prevChildSets);
+      setAlternateCards(prevAlternateCards);
+      showToast(`Failed to update reverse grading: ${err.message}`, 'error');
+    }
+  }
+
+  // ── Graded price lookup (slot-aware: 'regular' or 'reverse') ──────────────
+  async function handleCheckGradedPrices(cardId, slotKey) {
+    const compositeKey = `${cardId}-${slotKey}`;
+    setCheckingGradedId(compositeKey);
+    setGradedResultsKey(compositeKey);
     setGradedOptions(null);
     setGradedError(null);
     try {
@@ -215,29 +262,25 @@ export default function SetView() {
     }
   }
 
-  function handleSelectGradedOption(cardId, option) {
-    handleGradedChange(cardId, {
+  function handleSelectGradedOption(cardId, slotKey, option) {
+    const patch = {
       grading_company: option.company,
       grade: option.gradeNum,
       graded_price: option.price,
-    });
-    setGradedResultsCardId(null);
+    };
+    if (slotKey === 'reverse') {
+      handleReverseGradedChange(cardId, patch);
+    } else {
+      handleGradedChange(cardId, patch);
+    }
+    setGradedResultsKey(null);
     setGradedOptions(null);
   }
 
   function handleCloseGradedResults() {
-    setGradedResultsCardId(null);
+    setGradedResultsKey(null);
     setGradedOptions(null);
     setGradedError(null);
-  }
-
-  function handleSort(col) {
-    if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortCol(col);
-      setSortDir('asc');
-    }
   }
 
   // ── Price refresh ─────────────────────────────────────────────────────────
@@ -327,6 +370,8 @@ export default function SetView() {
   const { prev, next } = getAdjacentSets(allSets, id);
 
   const showVariantCol = setData?.variant_type !== 'none';
+  const mainColSpan = (showVariantCol ? 13 : 11);
+  const altColSpan = mainColSpan + 1; // Notes column
   
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -342,7 +387,7 @@ export default function SetView() {
   );
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1700, margin: '0 auto' }}>
 
       {/* ── Breadcrumb ── */}
       <div style={{ marginBottom: 'var(--space-4)', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -464,7 +509,6 @@ export default function SetView() {
                     { label: 'Storage',      col: null },
                     { label: 'Condition',    col: null },
                     { label: 'Graded',       col: null },
-                    { label: 'Grade/Price',  col: null },
                     { label: 'Price',        col: 'price' },
                     { label: 'Total',        col: null },
                     ...(showVariantCol ? [
@@ -498,14 +542,16 @@ export default function SetView() {
                   zebra={idx % 2 === 1}
                   variantType={setData?.variant_type}
                   showVariantCol={showVariantCol}
+                  colSpan={mainColSpan}
                   onOwnedChange={handleOwnedChange}
                   onReverseOwnedChange={handleReverseOwnedChange}
                   onStorageChange={handleStorageChange}
                   onConditionChange={handleConditionChange}
                   onGradedChange={handleGradedChange}
+                  onReverseGradedChange={handleReverseGradedChange}
                   onCheckGradedPrices={handleCheckGradedPrices}
                   checkingGradedId={checkingGradedId}
-                  gradedResultsCardId={gradedResultsCardId}
+                  gradedResultsKey={gradedResultsKey}
                   gradedOptions={gradedOptions}
                   gradedError={gradedError}
                   onSelectGradedOption={handleSelectGradedOption}
@@ -514,7 +560,7 @@ export default function SetView() {
               ))}
               {sortedCards.length === 0 && (
                 <tr>
-                 <td colSpan={showVariantCol ? 14 : 11} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
+                 <td colSpan={mainColSpan} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
                     No cards match the current filter.
                   </td>
                 </tr>
@@ -556,7 +602,7 @@ export default function SetView() {
                       { label: 'Rarity' }, { label: 'Regular' },
                       ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo' }] : []),
                       { label: 'Storage' }, { label: 'Condition' },
-                      { label: 'Graded' }, { label: 'Grade/Price' },
+                      { label: 'Graded' },
                       { label: 'Price' }, { label: 'Total' },
                       ...(showVariantCol ? [
                         { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
@@ -575,14 +621,16 @@ export default function SetView() {
                       zebra={idx % 2 === 1}
                       variantType={setData?.variant_type}
                       showVariantCol={showVariantCol}
+                      colSpan={mainColSpan}
                       onOwnedChange={handleOwnedChange}
                       onReverseOwnedChange={handleReverseOwnedChange}
                       onStorageChange={handleStorageChange}
                       onConditionChange={handleConditionChange}
                       onGradedChange={handleGradedChange}
+                      onReverseGradedChange={handleReverseGradedChange}
                       onCheckGradedPrices={handleCheckGradedPrices}
                       checkingGradedId={checkingGradedId}
-                      gradedResultsCardId={gradedResultsCardId}
+                      gradedResultsKey={gradedResultsKey}
                       gradedOptions={gradedOptions}
                       gradedError={gradedError}
                       onSelectGradedOption={handleSelectGradedOption}
@@ -626,7 +674,7 @@ export default function SetView() {
                       { label: 'Rarity' }, { label: 'Regular' },
                       ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo' }] : []),
                       { label: 'Storage' }, { label: 'Condition' },
-                      { label: 'Graded' }, { label: 'Grade/Price' },
+                      { label: 'Graded' },
                       { label: 'Price' }, { label: 'Total' },
                       ...(showVariantCol ? [
                         { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
@@ -647,14 +695,16 @@ export default function SetView() {
                       variantType={setData?.variant_type}
                       showVariantCol={showVariantCol}
                       showNotesCol={true}
+                      colSpan={altColSpan}
                       onOwnedChange={handleOwnedChange}
                       onReverseOwnedChange={handleReverseOwnedChange}
                       onStorageChange={handleStorageChange}
                       onConditionChange={handleConditionChange}
                       onGradedChange={handleGradedChange}
+                      onReverseGradedChange={handleReverseGradedChange}
                       onCheckGradedPrices={handleCheckGradedPrices}
                       checkingGradedId={checkingGradedId}
-                      gradedResultsCardId={gradedResultsCardId}
+                      gradedResultsKey={gradedResultsKey}
                       gradedOptions={gradedOptions}
                       gradedError={gradedError}
                       onSelectGradedOption={handleSelectGradedOption}
