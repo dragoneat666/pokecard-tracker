@@ -234,7 +234,7 @@ const CardRow = memo(function CardRow({
           <td style={{ ...tdStyle, maxWidth: 220 }}>
             {card.notes ? (
               card.notes_url ? (
-                
+                  <a
                   href={card.notes_url}
                   target="_blank"
                   rel="noopener noreferrer"
