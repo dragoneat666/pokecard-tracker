@@ -9,13 +9,19 @@
 import { memo, useState } from 'react';
 import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 
+const GRADE_OPTIONS = [
+  '10', '9.5', '9', '8.5', '8', '7.5', '7', '6.5', '6', '5.5',
+  '5', '4.5', '4', '3.5', '3', '2.5', '2', '1.5', '1',
+  ];
+  const GRADING_COMPANIES = ['PSA', 'BGS', 'CGC', 'ACE', 'TAG'];
 
 // memo() is a React optimization — this component only re-renders if its
 // props actually changed. For a table with 200+ rows, this matters.
-const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, showNotesCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange }) {
+const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol, showNotesCol, onOwnedChange, onReverseOwnedChange, onStorageChange, onConditionChange, onGradedChange }) {
   const [hovered, setHovered] = useState(false);
   const collector = isCollectorRarity(card.rarity);
   const { color: rarityColor, label: rarityLabel } = rarityMeta(card.rarity);
+  
 
   // ── Checkbox handlers ─────────────────────────────────────────────────────
   // Box 1: toggles between owned=0 and owned=1 (or owned=2 if box 2 was checked)
@@ -169,10 +175,51 @@ const CardRow = memo(function CardRow({ card, zebra, variantType, showVariantCol
         </select>
       </td>
 
-      {/* Market price */}
+      {/* Graded company */}
+      <td style={tdStyle}>
+        <select
+          className="input"
+          value={card.grading_company || ''}
+          onChange={e => onGradedChange(card.id, { grading_company: e.target.value || null })}
+          style={{ padding: '3px 6px', fontSize: '0.78rem', width: 'auto', minWidth: 90 }}
+        >
+          <option value="">Ungraded</option>
+          {GRADING_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </td>
+
+      {/* Grade + graded price */}
+      <td style={tdStyle}>
+        {card.grading_company ? (
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <select
+              className="input"
+              value={card.grade || ''}
+              onChange={e => onGradedChange(card.id, { grade: e.target.value || null })}
+              style={{ padding: '3px 4px', fontSize: '0.78rem', width: 'auto', minWidth: 56 }}
+            >
+              <option value="">Grade</option>
+              {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+            <input
+              className="input"
+              type="number"
+              step="0.01"
+              placeholder="$"
+              value={card.graded_price ?? ''}
+              onChange={e => onGradedChange(card.id, { graded_price: e.target.value ? parseFloat(e.target.value) : null })}
+              style={{ padding: '3px 4px', fontSize: '0.78rem', width: 70 }}
+            />
+          </div>
+        ) : (
+          <span style={{ color: 'var(--text-muted)' }}>—</span>
+        )}
+      </td>
+
+      {/* Market price (or graded price if this card is graded) */}
       <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)' }}>
-        <span style={{ color: card.market_price ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-          {formatPrice(card.market_price)}
+        <span style={{ color: (card.is_graded ? card.graded_price : card.market_price) ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+          {formatPrice(card.is_graded ? card.graded_price : card.market_price)}
         </span>
       </td>
 
