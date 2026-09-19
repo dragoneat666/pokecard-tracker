@@ -283,6 +283,18 @@ export default function SetView() {
     setGradedError(null);
   }
 
+  // ── Column sort ────────────────────────────────────────────────────────────
+  // Clicking the same column again flips direction; clicking a new column
+  // starts it at ascending.
+  function handleSort(col) {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  }
+
   // ── Price refresh ─────────────────────────────────────────────────────────
   async function handleRefreshPrices() {
     try {
@@ -359,8 +371,11 @@ export default function SetView() {
     } else if (sortCol === 'rarity') {
       aVal = a.rarity || ''; bVal = b.rarity || '';
     } else if (sortCol === 'price') {
-      aVal = parseFloat(a.market_price) || 0;
-      bVal = parseFloat(b.market_price) || 0;
+      aVal = parseFloat(a.is_graded ? a.graded_price : a.market_price) || 0;
+      bVal = parseFloat(b.is_graded ? b.graded_price : b.market_price) || 0;
+    } else if (sortCol === 'rev_price') {
+      aVal = parseFloat(a.reverse_is_graded ? a.reverse_graded_price : a.reverse_holo_price) || 0;
+      bVal = parseFloat(b.reverse_is_graded ? b.reverse_graded_price : b.reverse_holo_price) || 0;
     }
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
     if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
@@ -512,7 +527,7 @@ export default function SetView() {
                     { label: 'Price',        col: 'price' },
                     { label: 'Total',        col: null },
                     ...(showVariantCol ? [
-                      { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price', col: null },
+                      { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price', col: 'rev_price' },
                       { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total', col: null },
                     ] : []),
                   ].map(({ label, col }) => (
