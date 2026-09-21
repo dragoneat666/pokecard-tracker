@@ -1,11 +1,17 @@
 // pages/Admin.jsx — Admin tools: Collection Import/Export + Backup/Restore + Series Map editor
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
+import { APP_VERSION } from '../version.js';
 
 export default function Admin() {
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-      <h1 style={{ fontSize: '1.5rem', marginBottom: 'var(--space-6)' }}>Admin</h1>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', marginBottom: 'var(--space-6)' }}>
+        <h1 style={{ fontSize: '1.5rem' }}>Admin</h1>
+        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>
+          v{APP_VERSION}
+        </span>
+      </div>
       <CollectionImportExport />
       <div style={{ marginTop: 'var(--space-7)' }}>
         <SeriesMapEditor />

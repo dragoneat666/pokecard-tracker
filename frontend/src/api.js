@@ -98,4 +98,10 @@ admin: {
     delete: (set_code)             => request('DELETE', `/admin/series-map/${set_code}`),
   },
 },
+  // ── Reports ───────────────────────────────────────────────────────────────
+  reports: {
+    topValuable:        () => request('GET', '/reports/top-valuable'),
+    storageAuditSafe:      () => request('GET', '/reports/storage-audit-safe'),
+    storageAuditToploader: () => request('GET', '/reports/storage-audit-toploader'),
+  },
 };
