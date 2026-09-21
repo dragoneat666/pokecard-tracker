@@ -17,6 +17,7 @@ import { isCollectorRarity, formatPrice } from '../rarity.js';
 import CardRow from '../components/CardRow.jsx';
 import SetStats from '../components/SetStats.jsx';
 import { getAdjacentSets } from '../utils/sortSets.js';
+import { sortCards } from '../utils/sortCards.js';
 import SetToolsModal from '../components/SetToolsModal.jsx';
 
 export default function SetView() {
@@ -31,6 +32,8 @@ export default function SetView() {
   const [search, setSearch]     = useState('');
   const [sortCol, setSortCol]       = useState('number');
   const [sortDir, setSortDir]       = useState('asc');
+  const [altSortCol, setAltSortCol] = useState('number');
+  const [altSortDir, setAltSortDir] = useState('asc');
   const [quickFilter, setQuickFilter] = useState('all');
   const [childSets, setChildSets]     = useState([]);
   const [allSets, setAllSets] = useState([]);
@@ -295,6 +298,16 @@ export default function SetView() {
     }
   }
 
+  // Alternates table sorts independently from the main table above.
+  function handleAltSort(col) {
+    if (altSortCol === col) {
+      setAltSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setAltSortCol(col);
+      setAltSortDir('asc');
+    }
+  }
+
   // ── Price refresh ─────────────────────────────────────────────────────────
   async function handleRefreshPrices() {
     try {
@@ -329,58 +342,8 @@ export default function SetView() {
     return matchesQuickFilter && matchesSearch;
   });
 
-  const sortedCards = [...filteredCards].sort((a, b) => {
-    let aVal, bVal;
-    if (sortCol === 'number') {
-      // Split card number into three parts:
-      // leadingLetters — letters BEFORE the number (H, TG, AR etc)
-      // num            — the numeric part
-      // trailingSuffix — letters AFTER the number (a, b in 050a, 050b)
-      const parse = n => {
-        const base = n.split('/')[0];
-        const match = base.match(/^([A-Za-z]*)(\d+)([A-Za-z]*)$/);
-        if (!match) return { leading: base, num: 0, suffix: '' };
-        return { leading: match[1], num: parseInt(match[2]) || 0, suffix: match[3] };
-      };
-      const a$ = parse(a.card_number);
-      const b$ = parse(b.card_number);
-    
-      // Pure numeric cards (no leading letters) always come first
-      const aIsLetter = a$.leading !== '' ? 1 : 0;
-      const bIsLetter = b$.leading !== '' ? 1 : 0;
-      if (aIsLetter !== bIsLetter) return aIsLetter - bIsLetter;
-    
-      // Within same group: sort by leading prefix alphabetically
-      if (a$.leading !== b$.leading) {
-        return sortDir === 'asc'
-          ? a$.leading.localeCompare(b$.leading)
-          : b$.leading.localeCompare(a$.leading);
-      }
-    
-      // Then by number
-      if (a$.num !== b$.num) {
-        return sortDir === 'asc' ? a$.num - b$.num : b$.num - a$.num;
-      }
-    
-      // Then by trailing suffix (a before b, no suffix before a)
-      return sortDir === 'asc'
-        ? a$.suffix.localeCompare(b$.suffix)
-        : b$.suffix.localeCompare(a$.suffix);
-    } else if (sortCol === 'name') {
-      aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase();
-    } else if (sortCol === 'rarity') {
-      aVal = a.rarity || ''; bVal = b.rarity || '';
-    } else if (sortCol === 'price') {
-      aVal = parseFloat(a.is_graded ? a.graded_price : a.market_price) || 0;
-      bVal = parseFloat(b.is_graded ? b.graded_price : b.market_price) || 0;
-    } else if (sortCol === 'rev_price') {
-      aVal = parseFloat(a.reverse_is_graded ? a.reverse_graded_price : a.reverse_holo_price) || 0;
-      bVal = parseFloat(b.reverse_is_graded ? b.reverse_graded_price : b.reverse_holo_price) || 0;
-    }
-    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
-    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-    return 0;
-  });
+  const sortedCards = sortCards(filteredCards, sortCol, sortDir);
+  const sortedAlternateCards = sortCards(alternateCards, altSortCol, altSortDir);
 
   const { prev, next } = getAdjacentSets(allSets, id);
 
@@ -685,24 +648,43 @@ export default function SetView() {
                 <thead>
                   <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
                     {[
-                      { label: '#' }, { label: 'Name' }, { label: 'Type' },
-                      { label: 'Rarity' }, { label: 'Regular' },
-                      ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo' }] : []),
-                      { label: 'Storage' }, { label: 'Condition' },
-                      { label: 'Graded' },
-                      { label: 'Price' }, { label: 'Total' },
+                      { label: '#',            col: 'number' },
+                      { label: 'Name',         col: 'name' },
+                      { label: 'Type',         col: null },
+                      { label: 'Rarity',       col: 'rarity' },
+                      { label: 'Regular',      col: null },
+                      ...(showVariantCol ? [{ label: setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse Holo', col: null }] : []),
+                      { label: 'Storage',      col: null },
+                      { label: 'Condition',    col: null },
+                      { label: 'Graded',       col: null },
+                      { label: 'Price',        col: 'price' },
+                      { label: 'Total',        col: null },
                       ...(showVariantCol ? [
-                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price' },
-                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total' },
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Price' : 'Rev Price', col: 'rev_price' },
+                        { label: setData?.variant_type === 'first_edition' ? '1st Ed Total' : 'Rev Total', col: null },
                       ] : []),
-                      { label: 'Notes' },
-                    ].map(({ label }) => (
-                      <th key={label} style={{ ...thStyle, color: 'var(--text-secondary)' }}>{label}</th>
+                      { label: 'Notes',        col: null },
+                    ].map(({ label, col }) => (
+                      <th
+                        key={label}
+                        style={{
+                          ...thStyle,
+                          cursor: col ? 'pointer' : 'default',
+                          userSelect: 'none',
+                          color: col && altSortCol === col ? 'var(--accent)' : 'var(--text-secondary)',
+                        }}
+                        onClick={() => col && handleAltSort(col)}
+                      >
+                        {label}
+                        {col && altSortCol === col && (
+                          <span style={{ marginLeft: 4 }}>{altSortDir === 'asc' ? '↑' : '↓'}</span>
+                        )}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {alternateCards.map((card, idx) => (
+                  {sortedAlternateCards.map((card, idx) => (
                     <CardRow
                       key={card.id}
                       card={card}

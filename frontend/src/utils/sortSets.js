@@ -4,6 +4,11 @@
 // Used by Dashboard.jsx for display, and SetView.jsx for prev/next navigation,
 // so both always agree on what "adjacent" means.
 
+// These series don't have a meaningful release-date progression (they're
+// grab-bags spanning many years), so they always sort to the bottom of the
+// dashboard regardless of date, in this fixed order.
+const BOTTOM_SERIES = ["McDonald's", 'POP Series', 'Miscellaneous'];
+
 // Groups a flat set array into [{ series, sets[] }, ...] using the same
 // rules as the dashboard: series sorted newest-first (excluding promos from
 // that calculation), sets within a series sorted newest-first with promos
@@ -26,6 +31,14 @@ export function groupBySeries(sets) {
   });
 
   return Object.values(buckets).sort((a, b) => {
+    const aBottom = BOTTOM_SERIES.indexOf(a.series);
+    const bBottom = BOTTOM_SERIES.indexOf(b.series);
+    if (aBottom !== -1 || bBottom !== -1) {
+      if (aBottom === -1) return -1;
+      if (bBottom === -1) return 1;
+      return aBottom - bBottom;
+    }
+
     const nonPromo = sets => sets.filter(s => s.set_type !== 'Promo');
     const aSets = nonPromo(a.sets).length > 0 ? nonPromo(a.sets) : a.sets;
     const bSets = nonPromo(b.sets).length > 0 ? nonPromo(b.sets) : b.sets;
