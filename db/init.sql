@@ -23,6 +23,14 @@ CREATE TABLE sets (
   is_parent     BOOLEAN NOT NULL DEFAULT false,
   parent_set_id INT REFERENCES sets(id),
   date_manual BOOLEAN NOT NULL DEFAULT false,
+
+  -- When set, this set's whole series sorts to the bottom of the dashboard
+  -- instead of by release date — see frontend/src/utils/sortSets.js. Only
+  -- one set per series needs this checked; the series counts as pinned if
+  -- ANY of its member sets have it. Among pinned series, the one pinned
+  -- longest ago sinks lowest.
+  pinned_at     TIMESTAMPTZ,
+
   created_at    TIMESTAMPTZ DEFAULT NOW() -- Timestamp with timezone
 );
 
@@ -185,7 +193,7 @@ set_family AS (
 SELECT
   s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
   s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type,
-  s.is_parent, s.parent_set_id,
+  s.is_parent, s.parent_set_id, s.pinned_at,
   COUNT(c.id) FILTER (WHERE c.owned >= 1) AS cards_owned,
   COUNT(c.id) AS cards_in_db,
   COUNT(c.id) FILTER (
@@ -225,7 +233,7 @@ LEFT JOIN reverse_holos rh ON rh.card_id = c.id
 WHERE s.parent_set_id IS NULL
 GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
          s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type,
-         s.is_parent, s.parent_set_id, sd.printed_total
+         s.is_parent, s.parent_set_id, s.pinned_at, sd.printed_total
 ORDER BY s.release_date DESC NULLS LAST;
 
 -- ─── MATERIALIZED VIEW CACHE ──────────────────────────────────────────────────

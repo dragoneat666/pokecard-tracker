@@ -21,6 +21,7 @@ export default function EditSetModal({ set, onClose, onSaved }) {
     release_date: set.release_date ? set.release_date.split('T')[0] : '',
     is_parent:     set.is_parent     || false,
     parent_set_id: set.parent_set_id ? String(set.parent_set_id) : '',
+    pinned:        !!set.pinned_at,
   });
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState(null);
@@ -57,6 +58,7 @@ export default function EditSetModal({ set, onClose, onSaved }) {
         date_manual:  form.release_date ? true : false,
         is_parent:     form.is_parent,
         parent_set_id: form.parent_set_id ? parseInt(form.parent_set_id) : null,
+        pinned:        form.pinned,
       });
       onSaved();
     } catch (err) {
@@ -100,6 +102,19 @@ export default function EditSetModal({ set, onClose, onSaved }) {
           <label>
             <div style={labelStyle}>Series</div>
             <input className="input" placeholder="e.g. Scarlet & Violet" value={form.series} onChange={e => handleChange('series', e.target.value)} />
+          </label>
+
+          {/* Pin series to bottom checkbox */}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={form.pinned}
+              onChange={e => handleChange('pinned', e.target.checked)}
+            />
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              Pin this set's series to the bottom of the dashboard — only needs
+              to be checked on one set per series
+            </span>
           </label>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>

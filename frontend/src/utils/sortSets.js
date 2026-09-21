@@ -4,10 +4,16 @@
 // Used by Dashboard.jsx for display, and SetView.jsx for prev/next navigation,
 // so both always agree on what "adjacent" means.
 
-// These series don't have a meaningful release-date progression (they're
-// grab-bags spanning many years), so they always sort to the bottom of the
-// dashboard regardless of date, in this fixed order.
-const BOTTOM_SERIES = ["McDonald's", 'POP Series', 'Miscellaneous'];
+// A series counts as pinned to the bottom if ANY of its member sets have
+// pinned_at set (via the "Pin series to bottom" checkbox in Edit Set — only
+// one set per series needs it checked). Returns the earliest pinned_at
+// among them, or null if the series isn't pinned at all.
+function seriesPinTime(bucket) {
+  const pinnedTimes = bucket.sets
+    .filter(s => s.pinned_at)
+    .map(s => new Date(s.pinned_at).getTime());
+  return pinnedTimes.length > 0 ? Math.min(...pinnedTimes) : null;
+}
 
 // Groups a flat set array into [{ series, sets[] }, ...] using the same
 // rules as the dashboard: series sorted newest-first (excluding promos from
@@ -31,12 +37,15 @@ export function groupBySeries(sets) {
   });
 
   return Object.values(buckets).sort((a, b) => {
-    const aBottom = BOTTOM_SERIES.indexOf(a.series);
-    const bBottom = BOTTOM_SERIES.indexOf(b.series);
-    if (aBottom !== -1 || bBottom !== -1) {
-      if (aBottom === -1) return -1;
-      if (bBottom === -1) return 1;
-      return aBottom - bBottom;
+    const aPin = seriesPinTime(a);
+    const bPin = seriesPinTime(b);
+    // Pinned series always sort after every non-pinned series. Among pinned
+    // series, whichever was pinned longest ago sinks to the very bottom —
+    // each series pinned more recently stacks just above it.
+    if (aPin !== null || bPin !== null) {
+      if (aPin === null) return -1;
+      if (bPin === null) return 1;
+      return bPin - aPin;
     }
 
     const nonPromo = sets => sets.filter(s => s.set_type !== 'Promo');

@@ -15,6 +15,7 @@ router.get('/', async (_req, res, next) => {
         symbol_url, language, set_type, variant_type, is_parent, parent_set_id,
         cards_owned, cards_in_db, regular_cards, secret_cards, reverse_holo_count,
         master_total, master_owned, completion_pct, total_value, reverse_holo_value,
+        pinned_at,
         (total_value + reverse_holo_value) AS grand_total_value
       FROM set_summary_cache
       ORDER BY release_date DESC NULLS LAST
@@ -404,7 +405,7 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    let { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual } = req.body;
+    let { name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent, parent_set_id, date_manual, pinned } = req.body;
 
     // If series is being manually set, sync it to series_map as a protected
     // entry so future reimports of this or any set sharing the same set_code
@@ -429,6 +430,13 @@ router.patch('/:id', async (req, res, next) => {
       symbol_url = await downloadAndLocalizeImage(symbol_url, id, 'symbol');
     }
 
+    // pinned is optional and tri-state: true stamps pinned_at (only if not
+    // already pinned, so re-saving the modal doesn't reset a series' pin
+    // order), false clears it, and omitted leaves it untouched.
+    let pinnedAtSql = 'pinned_at';
+    if (pinned === true) pinnedAtSql = 'COALESCE(pinned_at, NOW())';
+    else if (pinned === false) pinnedAtSql = 'NULL';
+
     const { rows } = await query(`
       UPDATE sets SET
         name          = COALESCE($1, name),
@@ -440,7 +448,8 @@ router.patch('/:id', async (req, res, next) => {
         release_date  = CASE WHEN $7::date IS NOT NULL THEN $7::date ELSE release_date END,
         is_parent     = COALESCE($8, is_parent),
         parent_set_id = $9,
-        date_manual   = COALESCE($10, date_manual)
+        date_manual   = COALESCE($10, date_manual),
+        pinned_at     = ${pinnedAtSql}
       WHERE id = $11
       RETURNING *
     `, [name, set_type, variant_type, logo_url, symbol_url, series, release_date, is_parent ?? null, parent_set_id ?? null, date_manual ?? null, id]);
