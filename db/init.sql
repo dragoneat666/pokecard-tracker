@@ -146,17 +146,27 @@ CREATE INDEX idx_prices_card_fetched ON prices(card_id, fetched_at DESC);
 -- This gives us "current price per card" without repeating the logic everywhere.
 -- It uses a "window function": for each card_id, number rows by fetched_at DESC,
 -- then keep only row_number = 1 (the most recent).
+-- Uses a LATERAL lookup per card (one index probe on idx_prices_card_fetched)
+-- instead of DISTINCT ON over the whole table. DISTINCT ON can't be narrowed
+-- to one set's cards, so it walked every price row (millions, since we keep
+-- history) on every set page load.
 CREATE VIEW current_prices AS
-SELECT DISTINCT ON (card_id)
-  card_id,
-  market_price,
-  low_price,
-  mid_price,
-  holofoil_price,
-  reverse_holo_price,
-  fetched_at
-FROM prices
-ORDER BY card_id, fetched_at DESC;
+SELECT
+  c.id AS card_id,
+  p.market_price,
+  p.low_price,
+  p.mid_price,
+  p.holofoil_price,
+  p.reverse_holo_price,
+  p.fetched_at
+FROM cards c
+JOIN LATERAL (
+  SELECT market_price, low_price, mid_price, holofoil_price, reverse_holo_price, fetched_at
+  FROM prices
+  WHERE card_id = c.id
+  ORDER BY fetched_at DESC
+  LIMIT 1
+) p ON true;
 
 -- ─── SEALED PRODUCTS ─────────────────────────────────────────────────────────
 -- Booster boxes, ETBs, blisters, cases, etc. Kept out of `cards` so they never
