@@ -12,6 +12,7 @@
 
 import { memo, useState } from 'react';
 import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
+import HoverPreview from './HoverPreview.jsx';
 
 const GRADE_OPTIONS = [
   '10', '9.5', '9', '8.5', '8', '7.5', '7', '6.5', '6', '5.5',
@@ -101,7 +102,7 @@ const CardRow = memo(function CardRow({
 
         {/* Name */}
         <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          {card.name}
+          <HoverPreview imageUrl={card.image_url}>{card.name}</HoverPreview>
         </td>
 
         {/* Type */}
