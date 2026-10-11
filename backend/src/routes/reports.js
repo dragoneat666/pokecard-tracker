@@ -15,7 +15,8 @@ const router = Router();
 
 const OWNED_PRICED_CARDS = `
   SELECT
-    c.id, c.card_number, c.name, c.storage,
+    c.id, c.card_number, c.name, c.storage, c.rarity, c.image_url,
+    c.is_graded, c.grading_company, c.grade,
     s.id AS set_id, s.name AS set_name,
     (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END) AS price
   FROM cards c
