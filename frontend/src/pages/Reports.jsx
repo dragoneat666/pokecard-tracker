@@ -12,12 +12,16 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import { useToast } from '../hooks/useToast.js';
 import { formatPrice } from '../rarity.js';
+import HoverPreview from '../components/HoverPreview.jsx';
 
+// targetStorage: where cards in an audit report are supposed to be. Rows that
+// already match it (e.g. after you fix one) show a check mark.
 const REPORTS = [
   { key: 'top_valuable', label: 'Top 50 Most Valuable', fetch: api.reports.topValuable, view: 'tiles' },
-  { key: 'audit_safe',   label: 'Storage Audit — Safe', fetch: api.reports.storageAuditSafe, view: 'table' },
-  { key: 'audit_toploader', label: 'Storage Audit — Toploader', fetch: api.reports.storageAuditToploader, view: 'table' },
+  { key: 'audit_safe',   label: 'Storage Audit — Safe', fetch: api.reports.storageAuditSafe, view: 'table', targetStorage: 'safe' },
+  { key: 'audit_toploader', label: 'Storage Audit — Toploader', fetch: api.reports.storageAuditToploader, view: 'table', targetStorage: 'toploader' },
 ];
 
 const STORAGE_LABELS = {
@@ -32,6 +36,7 @@ export default function Reports() {
   const [rows, setRows]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const { toast, showToast }  = useToast();
 
   const active = REPORTS.find(r => r.key === activeKey);
 
@@ -46,10 +51,25 @@ export default function Reports() {
     return () => { cancelled = true; };
   }, [activeKey]);
 
+  // Same storage field the set view edits, so a change here shows up there.
+  // Optimistic update with revert on failure, like handleOwnedChange in SetView.
+  // The row stays in the list (marked as fixed) until the report is reloaded,
+  // so the list doesn't jump around while you work through it.
+  async function handleStorageChange(cardId, storage) {
+    const prev = rows;
+    setRows(r => r.map(card => card.id === cardId ? { ...card, storage } : card));
+    try {
+      await api.cards.setStorage(cardId, storage);
+    } catch (err) {
+      setRows(prev);
+      showToast(`Failed to update: ${err.message}`, 'error');
+    }
+  }
+
   const isTiles = active.view === 'tiles';
 
   return (
-    <div style={{ maxWidth: isTiles ? 1700 : 1100, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1700, margin: '0 auto' }}>
       <h1 style={{ fontSize: '1.5rem', marginBottom: 'var(--space-4)' }}>Reports</h1>
 
       {/* ── Report tabs ── */}
@@ -79,8 +99,10 @@ export default function Reports() {
       ) : isTiles ? (
         <TileGrid rows={rows} />
       ) : (
-        <ReportTable rows={rows} />
+        <ReportTable rows={rows} targetStorage={active.targetStorage} onStorageChange={handleStorageChange} />
       )}
+
+      {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
     </div>
   );
 }
@@ -188,7 +210,7 @@ function CardTile({ card, rank }) {
 }
 
 // ── Table (storage audits) ────────────────────────────────────────────────────
-function ReportTable({ rows }) {
+function ReportTable({ rows, targetStorage, onStorageChange }) {
   return (
     <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
@@ -213,9 +235,11 @@ function ReportTable({ rows }) {
               >
                 <td style={tdStyle}>{card.card_number}</td>
                 <td style={{ ...tdStyle, fontWeight: 600 }}>
-                  <Link to={`/sets/${card.set_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
-                    {card.name}
-                  </Link>
+                  <HoverPreview imageUrl={card.image_url}>
+                    <Link to={`/sets/${card.set_id}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
+                      {card.name}
+                    </Link>
+                  </HoverPreview>
                 </td>
                 <td style={tdStyle}>
                   <Link to={`/sets/${card.set_id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>
@@ -225,7 +249,23 @@ function ReportTable({ rows }) {
                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'var(--font-display)', color: 'var(--success)' }}>
                   {formatPrice(card.price)}
                 </td>
-                <td style={tdStyle}>{STORAGE_LABELS[card.storage] || card.storage}</td>
+                <td style={tdStyle}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <select
+                      className="input"
+                      value={card.storage}
+                      onChange={e => onStorageChange(card.id, e.target.value)}
+                      style={{ padding: '3px 6px', fontSize: '0.78rem', width: 'auto', minWidth: 90 }}
+                    >
+                      {Object.entries(STORAGE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                    {card.storage === targetStorage && (
+                      <span title="Now in the right place" style={{ color: 'var(--success)', fontWeight: 800 }}>✓</span>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
