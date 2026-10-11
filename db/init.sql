@@ -211,6 +211,14 @@ set_family AS (
   SELECT id AS parent_id, id AS member_id FROM sets WHERE parent_set_id IS NULL
   UNION ALL
   SELECT parent_set_id AS parent_id, id AS member_id FROM sets WHERE parent_set_id IS NOT NULL
+),
+-- Computed separately (not joined row-by-row) so sealed rows can't multiply
+-- the card rows and inflate the card counts/values below.
+sealed_values AS (
+  SELECT sf.parent_id, SUM(sp.market_price * sp.owned) AS sealed_value
+  FROM set_family sf
+  JOIN sealed_products sp ON sp.set_id = sf.member_id
+  GROUP BY sf.parent_id
 )
 SELECT
   s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
@@ -244,10 +252,14 @@ SELECT
     COUNT(c.id) FILTER (WHERE c.owned >= 1)::NUMERIC
     / NULLIF(s.total_cards, 0) * 100
   , 1) AS completion_pct,
-  COALESCE(SUM(cp.market_price * c.owned) FILTER (WHERE c.owned >= 1), 0) AS total_value,
-  COALESCE(SUM(cp.reverse_holo_price * rh.owned) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value
+  -- Graded slots use the graded price, same CASE WHEN as routes/sets.js.
+  -- Covers the set, its subsets and its alternates (all live in `cards`).
+  COALESCE(SUM(CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) FILTER (WHERE c.owned >= 1), 0) AS total_value,
+  COALESCE(SUM(CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) FILTER (WHERE rh.owned >= 1), 0) AS reverse_holo_value,
+  COALESCE(sv.sealed_value, 0) AS sealed_value
 FROM sets s
 LEFT JOIN set_denominators sd ON sd.set_id = s.id
+LEFT JOIN sealed_values sv ON sv.parent_id = s.id
 LEFT JOIN set_family sf ON sf.parent_id = s.id
 LEFT JOIN cards c ON c.set_id = sf.member_id
 LEFT JOIN current_prices cp ON cp.card_id = c.id
@@ -255,7 +267,7 @@ LEFT JOIN reverse_holos rh ON rh.card_id = c.id
 WHERE s.parent_set_id IS NULL
 GROUP BY s.id, s.name, s.series, s.total_cards, s.release_date, s.logo_url,
          s.set_code, s.symbol_url, s.language, s.set_type, s.variant_type,
-         s.is_parent, s.parent_set_id, s.pinned_at, sd.printed_total
+         s.is_parent, s.parent_set_id, s.pinned_at, sd.printed_total, sv.sealed_value
 ORDER BY s.release_date DESC NULLS LAST;
 
 -- ─── MATERIALIZED VIEW CACHE ──────────────────────────────────────────────────

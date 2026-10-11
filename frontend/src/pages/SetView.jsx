@@ -451,7 +451,7 @@ export default function SetView() {
       </div>
 
       {/* ── Stats ── */}
-      <SetStats cards={cards} childSets={childSets} />
+      <SetStats cards={cards} childSets={childSets} alternateCards={alternateCards} sealedProducts={sealedProducts} />
 
       {/* ── Filters ── */}
       <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>

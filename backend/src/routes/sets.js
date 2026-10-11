@@ -15,8 +15,8 @@ router.get('/', async (_req, res, next) => {
         symbol_url, language, set_type, variant_type, is_parent, parent_set_id,
         cards_owned, cards_in_db, regular_cards, secret_cards, reverse_holo_count,
         master_total, master_owned, completion_pct, total_value, reverse_holo_value,
-        pinned_at,
-        (total_value + reverse_holo_value) AS grand_total_value
+        sealed_value, pinned_at,
+        (total_value + reverse_holo_value + sealed_value) AS grand_total_value
       FROM set_summary_cache
       ORDER BY release_date DESC NULLS LAST
     `);
@@ -316,7 +316,7 @@ router.get('/:id', async (req, res, next) => {
     const sealedResult = await query(`
       SELECT id, name, image_url, owned, market_price, low_price
       FROM sealed_products
-      WHERE set_id = $1
+      WHERE set_id = $1 OR set_id IN (SELECT id FROM sets WHERE parent_set_id = $1)
       ORDER BY name
     `, [id]);
 

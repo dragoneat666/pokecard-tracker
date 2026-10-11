@@ -276,7 +276,7 @@ function SetRow({ set, onClick, onEdit }) {
   const masterTotal   = set.master_total  || 0;
   const masterOwned   = set.master_owned  || 0;
   const masterPct     = masterTotal > 0 ? Math.min(100, (masterOwned / masterTotal) * 100) : 0;
-  const totalValue    = parseFloat(set.total_value || 0) + parseFloat(set.reverse_holo_value || 0);
+  const totalValue    = parseFloat(set.total_value || 0) + parseFloat(set.reverse_holo_value || 0) + parseFloat(set.sealed_value || 0);
 
   const releaseDate = set.release_date
     ? new Date(set.release_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })

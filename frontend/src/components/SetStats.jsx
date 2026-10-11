@@ -1,9 +1,13 @@
 // components/SetStats.jsx — Aggregated stats for a single set
 // Shown at the top of SetView, similar to the totals row in your spreadsheet.
+//
+// Owned/completion only count the main cards and subsets. Value counts
+// everything in the set: main cards, subsets, alternates and sealed product,
+// using the graded price for graded slots (same as the row totals).
 
 import { formatPrice } from '../rarity.js';
 
-export default function SetStats({ cards, childSets = [] }) {
+export default function SetStats({ cards, childSets = [], alternateCards = [], sealedProducts = [] }) {
   const allCards = [
     ...cards,
     ...childSets.flatMap(({ cards }) => cards),
@@ -11,16 +15,23 @@ export default function SetStats({ cards, childSets = [] }) {
 
   if (!allCards.length) return null;
 
+  const valueCards = [...allCards, ...alternateCards];
+
   const owned      = allCards.filter(c => c.owned >= 1).length;
   const total      = allCards.length;
   const pct        = total > 0 ? ((owned / total) * 100).toFixed(1) : 0;
-  const totalValue = allCards.reduce((sum, c) => {
-    return sum + (c.owned >= 1 && c.market_price ? parseFloat(c.market_price) * c.owned : 0);
+  const totalValue = valueCards.reduce((sum, c) => {
+    const price = c.is_graded ? c.graded_price : c.market_price;
+    return sum + (c.owned >= 1 && price ? parseFloat(price) * c.owned : 0);
   }, 0);
   const revOwned   = allCards.filter(c => c.reverse_owned >= 1).length;
-  const revValue   = allCards.reduce((sum, c) => {
-    return sum + (c.reverse_owned >= 1 && c.reverse_holo_price ? parseFloat(c.reverse_holo_price) * c.reverse_owned : 0);
+  const revValue   = valueCards.reduce((sum, c) => {
+    const price = c.reverse_is_graded ? c.reverse_graded_price : c.reverse_holo_price;
+    return sum + (c.reverse_owned >= 1 && price ? parseFloat(price) * c.reverse_owned : 0);
   }, 0);
+  const sealedValue = sealedProducts.reduce(
+    (sum, p) => sum + (p.owned >= 1 && p.market_price ? parseFloat(p.market_price) * p.owned : 0), 0
+  );
 
   const stats = [
     { label: 'Owned',        value: `${owned} / ${total}` },
@@ -28,7 +39,8 @@ export default function SetStats({ cards, childSets = [] }) {
     { label: 'Card Value',   value: formatPrice(totalValue) },
     { label: 'Rev. Holos',   value: revOwned },
     { label: 'Rev. Value',   value: formatPrice(revValue) },
-    { label: 'Total Value',  value: formatPrice(totalValue + revValue), strong: true },
+    ...(sealedProducts.length > 0 ? [{ label: 'Sealed Value', value: formatPrice(sealedValue) }] : []),
+    { label: 'Total Value',  value: formatPrice(totalValue + revValue + sealedValue), strong: true },
   ];
 
   return (
