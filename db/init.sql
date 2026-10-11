@@ -158,6 +158,28 @@ SELECT DISTINCT ON (card_id)
 FROM prices
 ORDER BY card_id, fetched_at DESC;
 
+-- ─── SEALED PRODUCTS ─────────────────────────────────────────────────────────
+-- Booster boxes, ETBs, blisters, cases, etc. Kept out of `cards` so they never
+-- affect completion stats. Names/images come from TCGTracking's per-set
+-- /sealed endpoint and are synced automatically on import and price refresh.
+-- Prices live right on the row (no history) since they come from the same
+-- /pricing call as cards. owned is a plain count — cases and multiples happen.
+CREATE TABLE sealed_products (
+  id               SERIAL PRIMARY KEY,
+  set_id           INT NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+  tcgtracking_id   INTEGER NOT NULL UNIQUE,
+  name             TEXT NOT NULL,
+  image_url        TEXT,
+  owned            INT NOT NULL DEFAULT 0 CHECK (owned >= 0),
+  market_price     NUMERIC(10, 2),
+  low_price        NUMERIC(10, 2),
+  price_updated_at TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_sealed_products_set_id ON sealed_products(set_id);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits

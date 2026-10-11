@@ -11,6 +11,7 @@ import importRouter  from './routes/import.js';
 import backupRouter, { startBackupSchedule } from './routes/backup.js';
 import adminRouter from './routes/admin.js';
 import reportsRouter from './routes/reports.js';
+import sealedRouter from './routes/sealed.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -38,6 +39,7 @@ app.use('/api/import', importRouter);
 app.use('/api/backup', backupRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/sealed', sealedRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

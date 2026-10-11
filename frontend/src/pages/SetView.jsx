@@ -19,6 +19,7 @@ import SetStats from '../components/SetStats.jsx';
 import { getAdjacentSets } from '../utils/sortSets.js';
 import { sortCards } from '../utils/sortCards.js';
 import SetToolsModal from '../components/SetToolsModal.jsx';
+import SealedSection from '../components/SealedSection.jsx';
 
 export default function SetView() {
   const { id }  = useParams();   // The set ID from the URL /sets/:id
@@ -38,6 +39,7 @@ export default function SetView() {
   const [childSets, setChildSets]     = useState([]);
   const [allSets, setAllSets] = useState([]);
   const [alternateCards, setAlternateCards] = useState([]);
+  const [sealedProducts, setSealedProducts] = useState([]);
   const [showSetTools, setShowSetTools] = useState(false);
   const [checkingGradedId, setCheckingGradedId] = useState(null);   // "${cardId}-regular" | "${cardId}-reverse"
   const [gradedResultsKey, setGradedResultsKey] = useState(null);   // same composite format
@@ -55,6 +57,7 @@ export default function SetView() {
       setCards(data.cards);
       setChildSets(data.childSets || []);
       setAlternateCards(data.alternateCards || []);
+      setSealedProducts(data.sealedProducts || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -116,6 +119,19 @@ export default function SetView() {
       setCards(prev);
       setChildSets(prevChildSets);
       setAlternateCards(prevAlternateCards);
+      showToast(`Failed to update: ${err.message}`, 'error');
+    }
+  }
+
+  async function handleSealedOwnedChange(productId, newOwned) {
+    const prev = sealedProducts;
+    setSealedProducts(sp => sp.map(p =>
+      p.id === productId ? { ...p, owned: newOwned } : p
+    ));
+    try {
+      await api.sealed.setOwned(productId, newOwned);
+    } catch (err) {
+      setSealedProducts(prev);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
@@ -714,6 +730,9 @@ export default function SetView() {
           </div>
         </div>
       )}
+
+      {/* ── Sealed Product Section ── */}
+      <SealedSection products={sealedProducts} onOwnedChange={handleSealedOwnedChange} />
 
       {showSetTools && (
         <SetToolsModal

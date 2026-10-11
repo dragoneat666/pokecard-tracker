@@ -145,7 +145,15 @@ export async function importSetCards(tcgSetId) {
   console.log('   Step 1: Fetching cards from TCGTracking...');
 
   const tcgData = await tcgtrackingFetch(`/sets/${tcgSetId}`);
-  const tcgCards = (tcgData.products || []).filter(p => p.number !== null);
+
+  // Some sets (Journey Together) list sealed product in the card list with
+  // fake numbers like "TG12", so a null-number check isn't enough. The set's
+  // /sealed endpoint is the authoritative list; code cards are digital codes.
+  const sealedData = await tcgtrackingFetch(`/sets/${tcgSetId}/sealed`);
+  const sealedIds = new Set((sealedData.products || []).map(p => p.id));
+  const tcgCards = (tcgData.products || []).filter(p =>
+    p.number !== null && p.rarity !== 'Code Card' && !sealedIds.has(p.id)
+  );
 
   console.log(`   TCGTracking: ${tcgCards.length} cards found`);
 
@@ -312,6 +320,32 @@ export async function importSetCards(tcgSetId) {
   return set;
 }
 
+// ─── SYNC SEALED PRODUCTS ─────────────────────────────────────────────────────
+// Upserts the set's sealed product (boxes, ETBs, blisters, ...) into
+// sealed_products with current prices from the set's /pricing response.
+// owned is never touched, so counts survive every sync.
+async function syncSealedProducts(setId, tcgSetId, prices) {
+  const sealedData = await tcgtrackingFetch(`/sets/${tcgSetId}/sealed`);
+  const products = (sealedData.products || []).filter(p => p.rarity !== 'Code Card');
+
+  for (const product of products) {
+    const normal = prices[String(product.id)]?.tcg?.['Normal'] || {};
+    await query(`
+      INSERT INTO sealed_products (set_id, tcgtracking_id, name, image_url, market_price, low_price, price_updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      ON CONFLICT (tcgtracking_id) DO UPDATE SET
+        set_id           = EXCLUDED.set_id,
+        name             = EXCLUDED.name,
+        image_url        = EXCLUDED.image_url,
+        market_price     = EXCLUDED.market_price,
+        low_price        = EXCLUDED.low_price,
+        price_updated_at = NOW()
+    `, [setId, product.id, product.name, product.image_url || null, normal.market ?? null, normal.low ?? null]);
+  }
+
+  console.log(`   ✅ Synced ${products.length} sealed products`);
+}
+
 // ─── REFRESH PRICES FOR SET ───────────────────────────────────────────────────
 // One API call to TCGTracking gets all prices for the whole set.
 export async function refreshPricesForSet(setId) {
@@ -377,6 +411,14 @@ export async function refreshPricesForSet(setId) {
   }
 
   console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
+
+  // Sealed product rides along on the same pricing response. Non-fatal so a
+  // sealed hiccup never blocks the graded pass below.
+  try {
+    await syncSealedProducts(setId, tcg_id, prices);
+  } catch (err) {
+    console.error(`   Sealed sync failed for ${setName} (non-fatal): ${err.message}`);
+  }
 
   // ── Graded price refresh pass ─────────────────────────────────────────────
   // Walks any cards in this set marked is_graded and refreshes graded_price

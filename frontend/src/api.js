@@ -98,6 +98,10 @@ admin: {
     delete: (set_code)             => request('DELETE', `/admin/series-map/${set_code}`),
   },
 },
+  // ── Sealed product ────────────────────────────────────────────────────────
+  sealed: {
+    setOwned: (id, owned) => request('PATCH', `/sealed/${id}/owned`, { owned }),
+  },
   // ── Reports ───────────────────────────────────────────────────────────────
   reports: {
     topValuable:        () => request('GET', '/reports/top-valuable'),

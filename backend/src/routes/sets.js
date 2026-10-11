@@ -313,6 +313,13 @@ router.get('/:id', async (req, res, next) => {
       ORDER BY c.name
     `, [id]);
 
+    const sealedResult = await query(`
+      SELECT id, name, image_url, owned, market_price, low_price
+      FROM sealed_products
+      WHERE set_id = $1
+      ORDER BY name
+    `, [id]);
+
     // If this is a parent set, fetch child sets and their cards
     let childSets = [];
     if (setResult.rows[0].is_parent) {
@@ -354,6 +361,7 @@ router.get('/:id', async (req, res, next) => {
       set: setResult.rows[0],
       cards: cardsResult.rows,
       alternateCards: alternateCardsResult.rows,
+      sealedProducts: sealedResult.rows,
       childSets,
     });
   } catch (err) {
