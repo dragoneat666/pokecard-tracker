@@ -62,8 +62,7 @@ const CardRow = memo(function CardRow({
     ? parseFloat(card.reverse_is_graded ? card.reverse_graded_price : card.reverse_holo_price) * card.reverse_owned
     : null;
 
-  const typeColor = TYPE_COLORS[card.pokemon_type] ||
-    Object.entries(TYPE_COLORS).find(([key]) => card.pokemon_type?.includes(key))?.[1] || null;
+  const typeColor = getTypeColor(card);
   const rowBg = hovered
     ? 'var(--bg-elevated)'
     : typeColor
@@ -107,7 +106,7 @@ const CardRow = memo(function CardRow({
 
         {/* Type */}
         <td style={tdStyle}>
-          {card.pokemon_type ? <TypePip type={card.pokemon_type} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+          {card.pokemon_type ? <TypePip type={card.pokemon_type} color={typeColor} /> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
         </td>
 
         {/* Rarity badge */}
@@ -433,16 +432,41 @@ function Checkbox({ checked, onClick, title, dim = false, color = 'var(--success
 }
 
 // ── Type Pip ─────────────────────────────────────────────────────────────────
+const TRAINER_TAN = '#F5DC93';
+
+// PokéWallet returns granular subtype strings for non-Pokémon cards (Item,
+// Supporter, Stadium, ...) rather than a single "Trainer", so each needs its
+// own key or the row gets no color at all.
 const TYPE_COLORS = {
   Fire:       '#F08030', Water:      '#6890F0', Grass:    '#78C850',
   Lightning:  '#F8D030', Psychic:    '#F85888', Fighting: '#C03028',
   Darkness:   '#705848', Metal:      '#B8B8D0', Dragon:   '#7038F8',
-  Colorless:  '#A8A878', Fairy:      '#EE99AC', Trainer:    '#F5DC93',
+  Colorless:  '#A8A878', Fairy:      '#EE99AC', Trainer:    TRAINER_TAN,
+  Item:       TRAINER_TAN, Supporter: TRAINER_TAN, Stadium: TRAINER_TAN,
+  'Pokémon Tool': TRAINER_TAN,
 };
 
-function TypePip({ type }) {
-  const color = TYPE_COLORS[type] ||
-    Object.entries(TYPE_COLORS).find(([key]) => type?.includes(key))?.[1] || '#8b92b8';
+const ELEMENTAL_TYPES = [
+  'Fire', 'Water', 'Grass', 'Lightning', 'Psychic', 'Fighting',
+  'Darkness', 'Metal', 'Dragon', 'Colorless', 'Fairy',
+];
+
+// Special Energy has no energy-type field in our data, so take the element
+// from the card name (e.g. "Double Colorless Energy", "Darkness Energy") and
+// fall back to tan when the name doesn't mention one (e.g. "Rainbow Energy").
+function getTypeColor(card) {
+  const type = card.pokemon_type;
+  if (!type) return null;
+  if (type === 'Special Energy') {
+    const element = ELEMENTAL_TYPES.find(t => card.name?.includes(t));
+    return element ? TYPE_COLORS[element] : TRAINER_TAN;
+  }
+  return TYPE_COLORS[type] ||
+    Object.entries(TYPE_COLORS).find(([key]) => type.includes(key))?.[1] || null;
+}
+
+function TypePip({ type, color: colorProp }) {
+  const color = colorProp || '#8b92b8';
   return (
     <span style={{
       display: 'inline-block',
