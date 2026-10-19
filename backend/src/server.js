@@ -12,6 +12,7 @@ import backupRouter, { startBackupSchedule } from './routes/backup.js';
 import adminRouter from './routes/admin.js';
 import reportsRouter from './routes/reports.js';
 import sealedRouter from './routes/sealed.js';
+import bulkRouter from './routes/bulk.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -40,6 +41,7 @@ app.use('/api/backup', backupRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/sealed', sealedRouter);
+app.use('/api/bulk', bulkRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -102,6 +102,16 @@ admin: {
   sealed: {
     setOwned: (id, owned) => request('PATCH', `/sealed/${id}/owned`, { owned }),
   },
+  // ── Bulk tracker ──────────────────────────────────────────────────────────
+  bulk: {
+    listings: () => request('GET', '/bulk/listings'),
+    importFiles: async (formData) => {
+      const res = await fetch(`${BASE}/bulk/import`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      return data;
+    },
+  },
   // ── Reports ───────────────────────────────────────────────────────────────
   reports: {
     topValuable:        () => request('GET', '/reports/top-valuable'),

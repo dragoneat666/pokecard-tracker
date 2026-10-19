@@ -190,6 +190,43 @@ CREATE TABLE sealed_products (
 CREATE INDEX idx_sealed_products_set_id ON sealed_products(set_id);
 
 
+-- ─── BULK TRACKER ────────────────────────────────────────────────────────────
+-- Completely separate from the collection (no links to cards/sets). Each row
+-- of bulk_snapshots is one TCGPlayer "My Pricing" CSV export, dated from its
+-- filename. bulk_listing_rows keeps EVERY Pokemon row from every export,
+-- including quantity 0, so comparing consecutive snapshots shows when
+-- something was listed (0 -> 1+) or sold/pulled (1+ -> 0). Product details
+-- are stored once in bulk_products so each snapshot only repeats the numbers.
+CREATE TABLE bulk_snapshots (
+  id              SERIAL PRIMARY KEY,
+  snapshot_at     TIMESTAMP NOT NULL UNIQUE,   -- from the filename, local time
+  source_filename TEXT NOT NULL,
+  row_count       INT NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE bulk_products (
+  tcgplayer_id  INTEGER PRIMARY KEY,           -- same ID as cards.tcgtracking_id
+  set_name      TEXT,
+  product_name  TEXT NOT NULL,
+  number        TEXT,
+  rarity        TEXT,
+  condition     TEXT
+);
+
+CREATE TABLE bulk_listing_rows (
+  snapshot_id   INT NOT NULL REFERENCES bulk_snapshots(id) ON DELETE CASCADE,
+  tcgplayer_id  INTEGER NOT NULL REFERENCES bulk_products(tcgplayer_id),
+  quantity      INT NOT NULL DEFAULT 0,
+  listed_price  NUMERIC(10, 2),                -- TCG Marketplace Price (yours)
+  market_price  NUMERIC(10, 2),
+  low_price     NUMERIC(10, 2),
+  PRIMARY KEY (snapshot_id, tcgplayer_id)
+);
+
+CREATE INDEX idx_bulk_rows_product ON bulk_listing_rows(tcgplayer_id);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits
