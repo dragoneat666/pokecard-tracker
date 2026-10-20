@@ -19,7 +19,84 @@ export default function Admin() {
       <div style={{ marginTop: 'var(--space-7)' }}>
         <BackupSection />
       </div>
+      <div style={{ marginTop: 'var(--space-7)' }}>
+        <DataSourcesSection />
+      </div>
     </div>
+  );
+}
+
+// ── Data Sources ──────────────────────────────────────────────────────────────
+// Which outside sites the app pulls data from and what it takes from each.
+// Keys are only shown as set / missing, never their values.
+function DataSourcesSection() {
+  const [sources, setSources] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    api.admin.dataSources()
+      .then(setSources)
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.1rem', marginBottom: 'var(--space-2)', fontFamily: 'var(--font-display)' }}>
+        Data Sources
+      </h2>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>
+        The outside sites this app pulls data from, and what it gets from each.
+      </p>
+
+      {loading && <div style={{ color: 'var(--text-muted)' }}>Loading…</div>}
+      {error && <div style={{ color: 'var(--danger)', fontSize: '0.875rem' }}>{error}</div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        {sources.map(src => (
+          <div key={src.name} className="panel">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 4 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1rem' }}>{src.name}</span>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{src.site}</span>
+              <SourceBadge src={src} />
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
+              {src.role}
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.85rem', lineHeight: 1.6 }}>
+              {src.pulls.map((p, i) => <li key={i}>{p}</li>)}
+            </ul>
+            <div style={{ marginTop: 'var(--space-2)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Used by: {src.usedBy}
+            </div>
+            {src.limit && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Limit: {src.limit}</div>
+            )}
+            {src.usage && (
+              <div style={{ marginTop: 'var(--space-2)', fontSize: '0.8rem', fontWeight: 700, color: src.usage.used >= src.usage.limit ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                Used today: {src.usage.used} / {src.usage.limit}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SourceBadge({ src }) {
+  const ok = src.auth === 'none' || src.keyConfigured;
+  const text = src.auth === 'none' ? 'No key needed' : src.keyConfigured ? 'Key configured' : `Key missing (${src.keyName})`;
+  return (
+    <span style={{
+      padding: '1px 8px', borderRadius: 99, fontSize: '0.7rem', fontWeight: 700,
+      fontFamily: 'var(--font-display)',
+      background: ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+      color: ok ? 'var(--success)' : 'var(--danger)',
+    }}>
+      {text}
+    </span>
   );
 }
 

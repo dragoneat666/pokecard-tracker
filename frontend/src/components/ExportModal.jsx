@@ -3,7 +3,8 @@
 // Opened from Set Tools. Step 1: pick cards (main cards, subsets and
 // alternates) with the same quick filters as the set page, each row showing
 // whether you own it. Step 2: the picked cards are drawn into tall PNG sheets
-// (3 across — see utils/renderCardSheets.js) shown right here. Save them from
+// (3 across — see utils/renderCardSheets.js; missing cards aren't faded, they
+// just carry a "Need" tag) shown right here. Save them from
 // this screen, or "Send to phone" to park them on the backend for 24 hours so
 // you can open the Exports page on your phone and save them there.
 
@@ -134,7 +135,6 @@ export default function ExportModal({ set, onClose }) {
       name: card.name,
       number: displayNumber(card, group.printedTotal),
       setName: group.setName,
-      dim: card.owned < 1 && !(card.reverse_owned >= 1),
       tags,
     };
   }

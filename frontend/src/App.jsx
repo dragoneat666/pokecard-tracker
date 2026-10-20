@@ -5,6 +5,8 @@ import Admin     from './pages/Admin.jsx';
 import Reports   from './pages/Reports.jsx';
 import Bulk      from './pages/Bulk.jsx';
 import Exports   from './pages/Exports.jsx';
+import Topps     from './pages/Topps.jsx';
+import ToppsSet  from './pages/ToppsSet.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -36,6 +38,7 @@ function Layout() {
           ⚡ PokeCard Tracker
         </NavLink>
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
+        <NavLink to="/topps" style={navStyle}>Topps</NavLink>
         <NavLink to="/reports" style={navStyle}>Reports</NavLink>
         <NavLink to="/bulk" style={navStyle}>Bulk</NavLink>
         <NavLink to="/admin" style={navStyle}>Admin</NavLink>
@@ -48,6 +51,8 @@ function Layout() {
         <Routes>
           <Route path="/"         element={<Dashboard />} />
           <Route path="/sets/:id" element={<SetView />} />
+          <Route path="/topps"    element={<Topps />} />
+          <Route path="/topps/:id" element={<ToppsSet />} />
           <Route path="/reports"  element={<Reports />} />
           <Route path="/bulk"     element={<Bulk />} />
           <Route path="/exports"  element={<Exports />} />

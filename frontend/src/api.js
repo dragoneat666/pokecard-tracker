@@ -91,6 +91,7 @@ export const api = {
   },
   // ── Admin ─────────────────────────────────────────────────────────────────
 admin: {
+  dataSources: () => request('GET', '/admin/data-sources'),
   seriesMap: {
     list:   ()                     => request('GET',    '/admin/series-map'),
     add:    (set_code, series)     => request('POST',   '/admin/series-map', { set_code, series }),
@@ -117,6 +118,19 @@ admin: {
     imageUrl: (id, n) => `${BASE}/exports/${id}/${n}`,
     create: async (formData) => {
       const res = await fetch(`${BASE}/exports`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      return data;
+    },
+  },
+  // ── Topps checklists ──────────────────────────────────────────────────────
+  topps: {
+    sets:      ()                         => request('GET',    '/topps/sets'),
+    set:       (id)                       => request('GET',    `/topps/sets/${id}`),
+    deleteSet: (id)                       => request('DELETE', `/topps/sets/${id}`),
+    setCell:   (cardId, variantId, owned) => request('PATCH',  '/topps/cells', { card_id: cardId, variant_id: variantId, owned }),
+    importSet: async (formData) => {
+      const res = await fetch(`${BASE}/topps/import`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
       return data;

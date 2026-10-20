@@ -227,6 +227,47 @@ CREATE TABLE bulk_listing_rows (
 CREATE INDEX idx_bulk_rows_product ON bulk_listing_rows(tcgplayer_id);
 
 
+-- ─── TOPPS CHECKLISTS ────────────────────────────────────────────────────────
+-- Old Topps Pokemon cards (1999-2000s) aren't in the card APIs, so they're
+-- tracked by hand: each release is a set with its own printing columns (logo
+-- colors, silver/rainbow foils, diecuts, ...). topps_cells has a row for every
+-- card/printing combination that EXISTS; no row means that printing doesn't
+-- exist for that card (greyed out in the grid). owned is a simple have/need.
+CREATE TABLE topps_sets (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  sort_order  INT NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE topps_variants (
+  id          SERIAL PRIMARY KEY,
+  set_id      INT NOT NULL REFERENCES topps_sets(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sort_order  INT NOT NULL DEFAULT 0,
+  UNIQUE (set_id, name)
+);
+
+CREATE TABLE topps_cards (
+  id          SERIAL PRIMARY KEY,
+  set_id      INT NOT NULL REFERENCES topps_sets(id) ON DELETE CASCADE,
+  number      TEXT NOT NULL,                 -- text: "TV1", "E6", "00", "TT3"...
+  name        TEXT NOT NULL,
+  sort_order  INT NOT NULL DEFAULT 0,
+  UNIQUE (set_id, number)
+);
+
+CREATE TABLE topps_cells (
+  card_id     INT NOT NULL REFERENCES topps_cards(id) ON DELETE CASCADE,
+  variant_id  INT NOT NULL REFERENCES topps_variants(id) ON DELETE CASCADE,
+  owned       BOOLEAN NOT NULL DEFAULT false,
+  PRIMARY KEY (card_id, variant_id)
+);
+
+CREATE INDEX idx_topps_cards_set ON topps_cards(set_id);
+CREATE INDEX idx_topps_cells_variant ON topps_cells(variant_id);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits
