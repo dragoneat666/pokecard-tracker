@@ -4,6 +4,7 @@ import SetView   from './pages/SetView.jsx';
 import Admin     from './pages/Admin.jsx';
 import Reports   from './pages/Reports.jsx';
 import Bulk      from './pages/Bulk.jsx';
+import Exports   from './pages/Exports.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -49,6 +50,7 @@ function Layout() {
           <Route path="/sets/:id" element={<SetView />} />
           <Route path="/reports"  element={<Reports />} />
           <Route path="/bulk"     element={<Bulk />} />
+          <Route path="/exports"  element={<Exports />} />
           <Route path="/admin"    element={<Admin />} />
         </Routes>
       </main>

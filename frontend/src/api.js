@@ -102,6 +102,26 @@ admin: {
   sealed: {
     setOwned: (id, owned) => request('PATCH', `/sealed/${id}/owned`, { owned }),
   },
+  // ── Card images & temporary exports ───────────────────────────────────────
+  // Images load through our own backend so a canvas can draw them and export
+  // the result (the card image CDN doesn't allow that directly).
+  images: {
+    cardBlob: async (cardId, size = 400) => {
+      const res = await fetch(`${BASE}/images/card/${cardId}?size=${size}`);
+      return res.ok ? res.blob() : null;
+    },
+  },
+  exports: {
+    list:   () => request('GET', '/exports'),
+    remove: (id) => request('DELETE', `/exports/${id}`),
+    imageUrl: (id, n) => `${BASE}/exports/${id}/${n}`,
+    create: async (formData) => {
+      const res = await fetch(`${BASE}/exports`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      return data;
+    },
+  },
   // ── Bulk tracker ──────────────────────────────────────────────────────────
   bulk: {
     listings: () => request('GET', '/bulk/listings'),

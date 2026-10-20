@@ -1,11 +1,13 @@
 // components/SetToolsModal.jsx — Set-level tools: reimport, alternates, move cards, manual add
 import { useState, useEffect } from 'react';
 import { api } from '../api.js';
+import ExportModal from './ExportModal.jsx';
 
-const TABS = ['Reimport Set', 'Import Card', 'Edit Card', 'Manual Add', 'Edit Type'];
+const TABS = ['Reimport Set', 'Import Card', 'Edit Card', 'Manual Add', 'Edit Type', 'Export'];
 
 export default function SetToolsModal({ set, onClose, onChanged }) {
   const [activeTab, setActiveTab] = useState('Reimport Set');
+  const [showExport, setShowExport] = useState(false);
   const [reimporting, setReimporting] = useState(false);
   const [reimportResult, setReimportResult] = useState(null);
   const [reimportError, setReimportError] = useState(null);
@@ -153,7 +155,22 @@ export default function SetToolsModal({ set, onClose, onChanged }) {
           {activeTab === 'Edit Type' && (
             <EditTypeTab setId={set.id} onChanged={onChanged} />
         )}
+
+          {activeTab === 'Export' && (
+            <div>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+                Pick cards from this set (including subsets and alternates) and turn them into
+                phone-friendly images — 3 cards per row with the picture, name, number, set and
+                whether you own it. Handy for sharing what you need or have.
+              </p>
+              <button className="btn btn-primary" onClick={() => setShowExport(true)}>
+                Choose cards to export…
+              </button>
+            </div>
+          )}
         </div>
+
+        {showExport && <ExportModal set={set} onClose={() => setShowExport(false)} />}
       </div>
     </div>
   );

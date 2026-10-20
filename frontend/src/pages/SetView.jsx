@@ -13,11 +13,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
-import { isCollectorRarity, formatPrice } from '../rarity.js';
+import { formatPrice } from '../rarity.js';
 import CardRow from '../components/CardRow.jsx';
 import SetStats from '../components/SetStats.jsx';
 import { getAdjacentSets } from '../utils/sortSets.js';
 import { sortCards } from '../utils/sortCards.js';
+import { matchesQuickFilter, matchesSearch } from '../utils/cardFilters.js';
 import SetToolsModal from '../components/SetToolsModal.jsx';
 import SealedSection from '../components/SealedSection.jsx';
 
@@ -340,23 +341,10 @@ export default function SetView() {
   }
 
   // ── Filtered card list ────────────────────────────────────────────────────
-  const filteredCards = cards.filter(card => {
-    const matchesQuickFilter =
-      quickFilter === 'all'             ? true :
-      quickFilter === 'missing_regular' ? (card.owned === 0 && !isCollectorRarity(card.rarity)) :
-      quickFilter === 'missing_fullart' ? (card.owned === 0 && isCollectorRarity(card.rarity)) :
-      quickFilter === 'missing_reverse' ? ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0) :
-      quickFilter === 'missing_all'     ? (card.owned === 0 || ((setData?.variant_type === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) && card.reverse_owned === 0)) : true;
-
-    const matchesSearch = !search ||
-      card.name.toLowerCase().includes(search.toLowerCase()) ||
-      card.card_number.includes(search) ||
-      card.pokemon_type?.toLowerCase().includes(search.toLowerCase()) ||
-      card.rarity?.toLowerCase().includes(search.toLowerCase()) ||
-      card.storage?.toLowerCase().includes(search.toLowerCase());
-
-    return matchesQuickFilter && matchesSearch;
-  });
+  const variantType = setData?.variant_type;
+  const filteredCards = cards.filter(card =>
+    matchesQuickFilter(card, quickFilter, variantType) && matchesSearch(card, search)
+  );
 
   const sortedCards = sortCards(filteredCards, sortCol, sortDir);
   const sortedAlternateCards = sortCards(alternateCards, altSortCol, altSortDir);
@@ -459,13 +447,13 @@ export default function SetView() {
           { key: 'all',
             label: 'Clear' },
           { key: 'missing_regular',
-            label: `Missing Regular (${cards.filter(c => c.owned === 0 && !isCollectorRarity(c.rarity)).length})` },
+            label: `Missing Regular (${cards.filter(c => matchesQuickFilter(c, 'missing_regular', variantType)).length})` },
           { key: 'missing_fullart',
-            label: `Missing Full Art (${cards.filter(c => c.owned === 0 && isCollectorRarity(c.rarity)).length})` },
+            label: `Missing Full Art (${cards.filter(c => matchesQuickFilter(c, 'missing_fullart', variantType)).length})` },
           { key: 'missing_reverse',
-            label: `Missing ${setData?.variant_type === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => (setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0).length})` },
+            label: `Missing ${variantType === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => matchesQuickFilter(c, 'missing_reverse', variantType)).length})` },
           { key: 'missing_all',
-            label: `Missing All (${cards.filter(c => c.owned === 0 || ((setData?.variant_type === 'first_edition' ? c.has_first_edition : c.has_reverse_holo) && c.reverse_owned === 0)).length})` },
+            label: `Missing All (${cards.filter(c => matchesQuickFilter(c, 'missing_all', variantType)).length})` },
         ].map(({ key, label }) => (
           <button
             key={key}
