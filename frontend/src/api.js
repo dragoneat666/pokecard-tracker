@@ -128,6 +128,7 @@ admin: {
     sets:      ()                         => request('GET',    '/topps/sets'),
     set:       (id)                       => request('GET',    `/topps/sets/${id}`),
     deleteSet: (id)                       => request('DELETE', `/topps/sets/${id}`),
+    updateSet: (id, data)                 => request('PATCH',  `/topps/sets/${id}`, data),
     setCell:   (cardId, variantId, owned) => request('PATCH',  '/topps/cells', { card_id: cardId, variant_id: variantId, owned }),
     importSet: async (formData) => {
       const res = await fetch(`${BASE}/topps/import`, { method: 'POST', body: formData });

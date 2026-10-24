@@ -2,6 +2,7 @@
 // Topps checklists — old Topps Pokemon cards tracked by hand (no price data).
 //   GET    /api/topps/sets            — all checklists with progress
 //   GET    /api/topps/sets/:id        — one checklist: printings, cards, and what you have
+//   PATCH  /api/topps/sets/:id        — edit name, logo URL and release date
 //   PATCH  /api/topps/cells           — mark one card/printing owned or not
 //   DELETE /api/topps/sets/:id        — delete a checklist
 //   POST   /api/topps/import          — create a checklist from a CSV (see below)
@@ -18,6 +19,7 @@ import multer from 'multer';
 import fs from 'fs';
 import pool, { query } from '../db.js';
 import { parseCsvObjects } from '../utils/parseCsv.js';
+import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
 
 const router = Router();
 const upload = multer({ dest: '/tmp/pokecard-topps/' });
@@ -26,7 +28,8 @@ const upload = multer({ dest: '/tmp/pokecard-topps/' });
 router.get('/sets', async (_req, res, next) => {
   try {
     const { rows } = await query(`
-      SELECT s.id, s.name,
+      SELECT s.id, s.name, s.logo_url,
+             to_char(s.release_date, 'YYYY-MM-DD')         AS release_date,
              COUNT(DISTINCT c.id)                          AS card_count,
              COUNT(cl.card_id)                             AS cells,
              COUNT(cl.card_id) FILTER (WHERE cl.owned)     AS owned
@@ -39,6 +42,8 @@ router.get('/sets', async (_req, res, next) => {
     res.json(rows.map(r => ({
       id: r.id,
       name: r.name,
+      logo_url: r.logo_url,
+      release_date: r.release_date,
       card_count: parseInt(r.card_count, 10),
       cells: parseInt(r.cells, 10),
       owned: parseInt(r.owned, 10),
@@ -75,6 +80,38 @@ router.get('/sets/:id', async (req, res, next) => {
 
     res.json({ set: setRows[0], variants, cards: [...byCard.values()] });
   } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PATCH /api/topps/sets/:id ────────────────────────────────────────────────
+// Body: { name, logo_url, release_date }. An empty/null logo_url or release_date
+// clears it. A new logo URL is downloaded and stored on our server so sites that
+// block hotlinking (Bulbapedia, Fandom) can't break it — same as set logos.
+router.patch('/sets/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const name = (req.body.name ?? '').trim();
+    let logoUrl = (req.body.logo_url ?? '').trim() || null;
+    const releaseDate = (req.body.release_date ?? '').trim() || null;
+
+    if (!name) return res.status(400).json({ error: 'A name is required' });
+    if (releaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(releaseDate)) {
+      return res.status(400).json({ error: 'release_date must look like YYYY-MM-DD' });
+    }
+
+    if (logoUrl) logoUrl = await downloadAndLocalizeImage(logoUrl, id, 'topps-logo');
+
+    const { rowCount } = await query(
+      'UPDATE topps_sets SET name = $1, logo_url = $2, release_date = $3::date WHERE id = $4',
+      [name, logoUrl, releaseDate, id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Checklist not found' });
+    res.json({ id: parseInt(id, 10), name, logo_url: logoUrl, release_date: releaseDate });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'A checklist with that name already exists' });
+    }
     next(err);
   }
 });

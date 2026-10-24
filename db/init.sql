@@ -234,10 +234,12 @@ CREATE INDEX idx_bulk_rows_product ON bulk_listing_rows(tcgplayer_id);
 -- card/printing combination that EXISTS; no row means that printing doesn't
 -- exist for that card (greyed out in the grid). owned is a simple have/need.
 CREATE TABLE topps_sets (
-  id          SERIAL PRIMARY KEY,
-  name        TEXT NOT NULL UNIQUE,
-  sort_order  INT NOT NULL DEFAULT 0,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  logo_url     TEXT,                         -- set by hand in Edit; downloaded and stored locally
+  release_date DATE,
+  sort_order   INT NOT NULL DEFAULT 0,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE topps_variants (
