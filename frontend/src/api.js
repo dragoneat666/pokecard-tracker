@@ -125,17 +125,22 @@ admin: {
   },
   // ── Topps checklists ──────────────────────────────────────────────────────
   topps: {
-    sets:      ()                         => request('GET',    '/topps/sets'),
-    set:       (id)                       => request('GET',    `/topps/sets/${id}`),
-    deleteSet: (id)                       => request('DELETE', `/topps/sets/${id}`),
-    updateSet: (id, data)                 => request('PATCH',  `/topps/sets/${id}`, data),
-    setCell:   (cardId, variantId, owned) => request('PATCH',  '/topps/cells', { card_id: cardId, variant_id: variantId, owned }),
-    importSet: async (formData) => {
-      const res = await fetch(`${BASE}/topps/import`, { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
-      return data;
-    },
+    sets:          ()                       => request('GET',    '/topps/sets'),
+    set:           (id)                     => request('GET',    `/topps/sets/${id}`),
+    createSet:     (name)                   => request('POST',   '/topps/sets', { name }),
+    updateSet:     (id, data)               => request('PATCH',  `/topps/sets/${id}`, data),
+    deleteSet:     (id)                     => request('DELETE', `/topps/sets/${id}`),
+    addTable:      (setId, title)           => request('POST',   `/topps/sets/${setId}/tables`, { title }),
+    updateTable:   (id, title)              => request('PATCH',  `/topps/tables/${id}`, { title }),
+    deleteTable:   (id)                     => request('DELETE', `/topps/tables/${id}`),
+    addVariant:    (tableId, name)          => request('POST',   `/topps/tables/${tableId}/variants`, { name }),
+    updateVariant: (id, name)               => request('PATCH',  `/topps/variants/${id}`, { name }),
+    deleteVariant: (id)                     => request('DELETE', `/topps/variants/${id}`),
+    addCard:       (tableId, number, name)  => request('POST',   `/topps/tables/${tableId}/cards`, { number, name }),
+    updateCard:    (id, number, name)       => request('PATCH',  `/topps/cards/${id}`, { number, name }),
+    deleteCard:    (id)                     => request('DELETE', `/topps/cards/${id}`),
+    // state: 'none' (printing doesn't exist) | 'need' | 'have'
+    setCell:       (cardId, variantId, state) => request('PUT',  '/topps/cells', { card_id: cardId, variant_id: variantId, state }),
   },
   // ── Bulk tracker ──────────────────────────────────────────────────────────
   bulk: {

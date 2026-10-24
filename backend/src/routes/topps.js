@@ -1,28 +1,43 @@
 // routes/topps.js
-// Topps checklists — old Topps Pokemon cards tracked by hand (no price data).
-//   GET    /api/topps/sets            — all checklists with progress
-//   GET    /api/topps/sets/:id        — one checklist: printings, cards, and what you have
-//   PATCH  /api/topps/sets/:id        — edit name, logo URL and release date
-//   PATCH  /api/topps/cells           — mark one card/printing owned or not
-//   DELETE /api/topps/sets/:id        — delete a checklist
-//   POST   /api/topps/import          — create a checklist from a CSV (see below)
+// Topps checklists — old Topps Pokemon cards tracked by hand (no price data),
+// edited like a spreadsheet. A checklist holds tables; a table has named
+// columns (printings) and rows (cards); each cell is have / need / doesn't exist.
 //
-// Import CSV format (a grid like the old spreadsheets): first column is the
-// card number, second the card name, and every other column is a printing
-// (e.g. "Blue Logo - Non Holo"). For each cell:
-//   0 or "0"      = this printing does not exist for that card
-//   blank         = exists, you don't have it
-//   anything else = exists, you have it
+//   GET    /api/topps/sets                  — checklists with progress
+//   POST   /api/topps/sets                  — new checklist (with one starter table)
+//   GET    /api/topps/sets/:id              — a checklist with all its tables
+//   PATCH  /api/topps/sets/:id              — edit name, logo URL and release date
+//   DELETE /api/topps/sets/:id
+//   POST   /api/topps/sets/:id/tables       — add a table
+//   PATCH  /api/topps/tables/:id            — rename a table
+//   DELETE /api/topps/tables/:id
+//   POST   /api/topps/tables/:id/variants   — add a column
+//   PATCH  /api/topps/variants/:id          — rename a column
+//   DELETE /api/topps/variants/:id
+//   POST   /api/topps/tables/:id/cards      — add a row
+//   PATCH  /api/topps/cards/:id             — edit a row's number / name
+//   DELETE /api/topps/cards/:id
+//   PUT    /api/topps/cells                 — set one cell: none | need | have
+//
+// New columns and rows get a "need" cell for every row/column already there;
+// "doesn't exist" (none) means there is simply no cell.
 
 import { Router } from 'express';
-import multer from 'multer';
-import fs from 'fs';
-import pool, { query } from '../db.js';
-import { parseCsvObjects } from '../utils/parseCsv.js';
+import { query } from '../db.js';
 import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
 
 const router = Router();
-const upload = multer({ dest: '/tmp/pokecard-topps/' });
+
+const clean = value => (typeof value === 'string' ? value.trim() : '');
+
+// Unique-constraint violations become a friendly 409.
+function duplicate(err, res, message) {
+  if (err.code === '23505') {
+    res.status(409).json({ error: message });
+    return true;
+  }
+  return false;
+}
 
 // ─── GET /api/topps/sets ──────────────────────────────────────────────────────
 router.get('/sets', async (_req, res, next) => {
@@ -34,7 +49,8 @@ router.get('/sets', async (_req, res, next) => {
              COUNT(cl.card_id)                             AS cells,
              COUNT(cl.card_id) FILTER (WHERE cl.owned)     AS owned
       FROM topps_sets s
-      LEFT JOIN topps_cards c  ON c.set_id = s.id
+      LEFT JOIN topps_tables t ON t.set_id = s.id
+      LEFT JOIN topps_cards c  ON c.table_id = t.id
       LEFT JOIN topps_cells cl ON cl.card_id = c.id
       GROUP BY s.id
       ORDER BY s.sort_order, s.name
@@ -53,32 +69,77 @@ router.get('/sets', async (_req, res, next) => {
   }
 });
 
+// ─── POST /api/topps/sets ─────────────────────────────────────────────────────
+// A new checklist starts with one table and one column ("Owned") to build on.
+router.post('/sets', async (req, res, next) => {
+  try {
+    const name = clean(req.body.name);
+    if (!name) return res.status(400).json({ error: 'A name is required' });
+
+    const { rows } = await query(`
+      WITH s AS (
+        INSERT INTO topps_sets (name, sort_order)
+        VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM topps_sets))
+        RETURNING id
+      ), t AS (
+        INSERT INTO topps_tables (set_id, title, sort_order)
+        SELECT id, '', 0 FROM s RETURNING id
+      ), v AS (
+        INSERT INTO topps_variants (table_id, name, sort_order)
+        SELECT id, 'Owned', 0 FROM t RETURNING id
+      )
+      SELECT id FROM s
+    `, [name]);
+    res.status(201).json({ id: rows[0].id, name });
+  } catch (err) {
+    if (!duplicate(err, res, 'A checklist with that name already exists')) next(err);
+  }
+});
+
 // ─── GET /api/topps/sets/:id ──────────────────────────────────────────────────
-// cards[].cells maps variant id -> owned (true/false). A variant missing from
-// that map means the printing doesn't exist for that card.
+// tables[].cards[].cells maps column id -> owned (true/false). A column missing
+// from that map means the printing doesn't exist for that card.
 router.get('/sets/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { rows: setRows } = await query('SELECT id, name FROM topps_sets WHERE id = $1', [id]);
+    const { rows: setRows } = await query(`
+      SELECT id, name, logo_url, to_char(release_date, 'YYYY-MM-DD') AS release_date
+      FROM topps_sets WHERE id = $1
+    `, [id]);
     if (setRows.length === 0) return res.status(404).json({ error: 'Checklist not found' });
 
-    const { rows: variants } = await query(
-      'SELECT id, name FROM topps_variants WHERE set_id = $1 ORDER BY sort_order, id', [id]
+    const { rows: tables } = await query(
+      'SELECT id, title FROM topps_tables WHERE set_id = $1 ORDER BY sort_order, id', [id]
     );
-    const { rows: cards } = await query(
-      'SELECT id, number, name FROM topps_cards WHERE set_id = $1 ORDER BY sort_order, id', [id]
-    );
+    const { rows: variants } = await query(`
+      SELECT v.id, v.table_id, v.name
+      FROM topps_variants v JOIN topps_tables t ON t.id = v.table_id
+      WHERE t.set_id = $1 ORDER BY v.sort_order, v.id
+    `, [id]);
+    const { rows: cards } = await query(`
+      SELECT c.id, c.table_id, c.number, c.name, c.image_url
+      FROM topps_cards c JOIN topps_tables t ON t.id = c.table_id
+      WHERE t.set_id = $1 ORDER BY c.sort_order, c.id
+    `, [id]);
     const { rows: cells } = await query(`
       SELECT cl.card_id, cl.variant_id, cl.owned
       FROM topps_cells cl
       JOIN topps_cards c ON c.id = cl.card_id
-      WHERE c.set_id = $1
+      JOIN topps_tables t ON t.id = c.table_id
+      WHERE t.set_id = $1
     `, [id]);
 
-    const byCard = new Map(cards.map(c => [c.id, { ...c, cells: {} }]));
-    for (const cell of cells) byCard.get(cell.card_id).cells[cell.variant_id] = cell.owned;
+    const tableMap = new Map(tables.map(t => [t.id, { ...t, variants: [], cards: [] }]));
+    const cardMap = new Map();
+    for (const v of variants) tableMap.get(v.table_id).variants.push({ id: v.id, name: v.name });
+    for (const c of cards) {
+      const card = { id: c.id, number: c.number, name: c.name, image_url: c.image_url, cells: {} };
+      cardMap.set(c.id, card);
+      tableMap.get(c.table_id).cards.push(card);
+    }
+    for (const cell of cells) cardMap.get(cell.card_id).cells[cell.variant_id] = cell.owned;
 
-    res.json({ set: setRows[0], variants, cards: [...byCard.values()] });
+    res.json({ set: setRows[0], tables: [...tableMap.values()] });
   } catch (err) {
     next(err);
   }
@@ -91,9 +152,9 @@ router.get('/sets/:id', async (req, res, next) => {
 router.patch('/sets/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const name = (req.body.name ?? '').trim();
-    let logoUrl = (req.body.logo_url ?? '').trim() || null;
-    const releaseDate = (req.body.release_date ?? '').trim() || null;
+    const name = clean(req.body.name);
+    let logoUrl = clean(req.body.logo_url) || null;
+    const releaseDate = clean(req.body.release_date) || null;
 
     if (!name) return res.status(400).json({ error: 'A name is required' });
     if (releaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(releaseDate)) {
@@ -109,29 +170,7 @@ router.patch('/sets/:id', async (req, res, next) => {
     if (rowCount === 0) return res.status(404).json({ error: 'Checklist not found' });
     res.json({ id: parseInt(id, 10), name, logo_url: logoUrl, release_date: releaseDate });
   } catch (err) {
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'A checklist with that name already exists' });
-    }
-    next(err);
-  }
-});
-
-// ─── PATCH /api/topps/cells ───────────────────────────────────────────────────
-// Body: { card_id, variant_id, owned: true|false } — an absolute value, not a toggle.
-router.patch('/cells', async (req, res, next) => {
-  try {
-    const { card_id, variant_id, owned } = req.body;
-    if (!Number.isInteger(card_id) || !Number.isInteger(variant_id) || typeof owned !== 'boolean') {
-      return res.status(400).json({ error: 'card_id, variant_id and owned (true/false) are required' });
-    }
-    const { rowCount } = await query(
-      'UPDATE topps_cells SET owned = $3 WHERE card_id = $1 AND variant_id = $2',
-      [card_id, variant_id, owned]
-    );
-    if (rowCount === 0) return res.status(404).json({ error: 'That printing does not exist for this card' });
-    res.json({ card_id, variant_id, owned });
-  } catch (err) {
-    next(err);
+    if (!duplicate(err, res, 'A checklist with that name already exists')) next(err);
   }
 });
 
@@ -146,104 +185,189 @@ router.delete('/sets/:id', async (req, res, next) => {
   }
 });
 
-// ─── POST /api/topps/import ───────────────────────────────────────────────────
-// multipart: "file" (CSV) and "name" (checklist name). Refuses a name that
-// already exists so a re-import can never wipe what you've checked off.
-router.post('/import', upload.single('file'), async (req, res, next) => {
-  const tempPath = req.file?.path;
+// ─── POST /api/topps/sets/:id/tables ──────────────────────────────────────────
+router.post('/sets/:id/tables', async (req, res, next) => {
   try {
-    const name = (req.body.name || '').trim();
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    if (!name) return res.status(400).json({ error: 'A checklist name is required' });
+    const { id } = req.params;
+    const title = clean(req.body.title).slice(0, 120);
+    const { rows: setRows } = await query('SELECT id FROM topps_sets WHERE id = $1', [id]);
+    if (setRows.length === 0) return res.status(404).json({ error: 'Checklist not found' });
 
-    const records = parseCsvObjects(fs.readFileSync(tempPath, 'utf8'));
-    if (records.length === 0) return res.status(400).json({ error: 'CSV has no data rows' });
-
-    const columns = Object.keys(records[0]);
-    if (columns.length < 3) {
-      return res.status(400).json({ error: 'CSV needs a number column, a name column and at least one printing column' });
-    }
-    const [numberCol, nameCol, ...variantCols] = columns;
-
-    const { rows: existing } = await query('SELECT id FROM topps_sets WHERE name = $1', [name]);
-    if (existing.length > 0) {
-      return res.status(409).json({ error: `A checklist named "${name}" already exists — delete it first to re-import` });
-    }
-
-    const seen = new Set();
-    for (const r of records) {
-      const number = r[numberCol];
-      if (!number || !r[nameCol]) return res.status(400).json({ error: 'Every row needs a number and a name' });
-      if (seen.has(number)) return res.status(400).json({ error: `Duplicate card number "${number}"` });
-      seen.add(number);
-    }
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const { rows: [set] } = await client.query(`
-        INSERT INTO topps_sets (name, sort_order)
-        VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM topps_sets))
+    const { rows } = await query(`
+      WITH t AS (
+        INSERT INTO topps_tables (set_id, title, sort_order)
+        VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM topps_tables WHERE set_id = $1))
         RETURNING id
-      `, [name]);
-
-      const variantIds = [];
-      for (let i = 0; i < variantCols.length; i++) {
-        const { rows: [v] } = await client.query(
-          'INSERT INTO topps_variants (set_id, name, sort_order) VALUES ($1, $2, $3) RETURNING id',
-          [set.id, variantCols[i], i]
-        );
-        variantIds.push(v.id);
-      }
-
-      const cellCard = [];
-      const cellVariant = [];
-      const cellOwned = [];
-      let owned = 0;
-      for (let i = 0; i < records.length; i++) {
-        const r = records[i];
-        const { rows: [card] } = await client.query(
-          'INSERT INTO topps_cards (set_id, number, name, sort_order) VALUES ($1, $2, $3, $4) RETURNING id',
-          [set.id, r[numberCol], r[nameCol], i]
-        );
-        variantCols.forEach((col, j) => {
-          const raw = (r[col] || '').trim();
-          if (raw === '0') return;                     // printing doesn't exist
-          const have = raw !== '';
-          cellCard.push(card.id);
-          cellVariant.push(variantIds[j]);
-          cellOwned.push(have);
-          if (have) owned++;
-        });
-      }
-
-      for (let i = 0; i < cellCard.length; i += 2000) {
-        await client.query(`
-          INSERT INTO topps_cells (card_id, variant_id, owned)
-          SELECT * FROM unnest($1::int[], $2::int[], $3::boolean[])
-        `, [cellCard.slice(i, i + 2000), cellVariant.slice(i, i + 2000), cellOwned.slice(i, i + 2000)]);
-      }
-
-      await client.query('COMMIT');
-      res.status(201).json({
-        id: set.id,
-        name,
-        cards: records.length,
-        printings: variantCols.length,
-        cells: cellCard.length,
-        owned,
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+      ), v AS (
+        INSERT INTO topps_variants (table_id, name, sort_order)
+        SELECT id, 'Owned', 0 FROM t RETURNING id
+      )
+      SELECT id FROM t
+    `, [id, title]);
+    res.status(201).json({ id: rows[0].id });
   } catch (err) {
     next(err);
-  } finally {
-    if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+  }
+});
+
+// ─── PATCH /api/topps/tables/:id ──────────────────────────────────────────────
+router.patch('/tables/:id', async (req, res, next) => {
+  try {
+    const title = clean(req.body.title).slice(0, 120);
+    const { rowCount } = await query('UPDATE topps_tables SET title = $1 WHERE id = $2', [title, req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Table not found' });
+    res.json({ id: parseInt(req.params.id, 10), title });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── DELETE /api/topps/tables/:id ─────────────────────────────────────────────
+router.delete('/tables/:id', async (req, res, next) => {
+  try {
+    const { rowCount } = await query('DELETE FROM topps_tables WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Table not found' });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/topps/tables/:id/variants ──────────────────────────────────────
+// Adds a column; every existing row gets a "need" cell in it.
+router.post('/tables/:id/variants', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const name = clean(req.body.name).slice(0, 120);
+    if (!name) return res.status(400).json({ error: 'A column name is required' });
+    const { rows: found } = await query('SELECT id FROM topps_tables WHERE id = $1', [id]);
+    if (found.length === 0) return res.status(404).json({ error: 'Table not found' });
+
+    const { rows } = await query(`
+      WITH v AS (
+        INSERT INTO topps_variants (table_id, name, sort_order)
+        VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topps_variants WHERE table_id = $1))
+        RETURNING id
+      ), cells AS (
+        INSERT INTO topps_cells (card_id, variant_id, owned)
+        SELECT c.id, v.id, false FROM topps_cards c, v WHERE c.table_id = $1
+        RETURNING 1
+      )
+      SELECT id FROM v
+    `, [id, name]);
+    res.status(201).json({ id: rows[0].id });
+  } catch (err) {
+    if (!duplicate(err, res, 'This table already has a column with that name')) next(err);
+  }
+});
+
+// ─── PATCH /api/topps/variants/:id ────────────────────────────────────────────
+router.patch('/variants/:id', async (req, res, next) => {
+  try {
+    const name = clean(req.body.name).slice(0, 120);
+    if (!name) return res.status(400).json({ error: 'A column name is required' });
+    const { rowCount } = await query('UPDATE topps_variants SET name = $1 WHERE id = $2', [name, req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Column not found' });
+    res.json({ id: parseInt(req.params.id, 10), name });
+  } catch (err) {
+    if (!duplicate(err, res, 'This table already has a column with that name')) next(err);
+  }
+});
+
+// ─── DELETE /api/topps/variants/:id ───────────────────────────────────────────
+router.delete('/variants/:id', async (req, res, next) => {
+  try {
+    const { rowCount } = await query('DELETE FROM topps_variants WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Column not found' });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/topps/tables/:id/cards ─────────────────────────────────────────
+// Adds a row; it gets a "need" cell in every column the table has.
+router.post('/tables/:id/cards', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const number = clean(req.body.number).slice(0, 40);
+    const name = clean(req.body.name).slice(0, 200);
+    if (!number || !name) return res.status(400).json({ error: 'A number and a name are required' });
+    const { rows: found } = await query('SELECT id FROM topps_tables WHERE id = $1', [id]);
+    if (found.length === 0) return res.status(404).json({ error: 'Table not found' });
+
+    const { rows } = await query(`
+      WITH c AS (
+        INSERT INTO topps_cards (table_id, number, name, sort_order)
+        VALUES ($1, $2, $3, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM topps_cards WHERE table_id = $1))
+        RETURNING id
+      ), cells AS (
+        INSERT INTO topps_cells (card_id, variant_id, owned)
+        SELECT c.id, v.id, false FROM c, topps_variants v WHERE v.table_id = $1
+        RETURNING 1
+      )
+      SELECT id FROM c
+    `, [id, number, name]);
+    res.status(201).json({ id: rows[0].id });
+  } catch (err) {
+    if (!duplicate(err, res, 'This table already has a card with that number')) next(err);
+  }
+});
+
+// ─── PATCH /api/topps/cards/:id ───────────────────────────────────────────────
+router.patch('/cards/:id', async (req, res, next) => {
+  try {
+    const number = clean(req.body.number).slice(0, 40);
+    const name = clean(req.body.name).slice(0, 200);
+    if (!number || !name) return res.status(400).json({ error: 'A number and a name are required' });
+    const { rowCount } = await query(
+      'UPDATE topps_cards SET number = $1, name = $2 WHERE id = $3', [number, name, req.params.id]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Card not found' });
+    res.json({ id: parseInt(req.params.id, 10), number, name });
+  } catch (err) {
+    if (!duplicate(err, res, 'This table already has a card with that number')) next(err);
+  }
+});
+
+// ─── DELETE /api/topps/cards/:id ──────────────────────────────────────────────
+router.delete('/cards/:id', async (req, res, next) => {
+  try {
+    const { rowCount } = await query('DELETE FROM topps_cards WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Card not found' });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PUT /api/topps/cells ─────────────────────────────────────────────────────
+// Body: { card_id, variant_id, state: 'none' | 'need' | 'have' } — an absolute
+// state, not a toggle. The card and column must belong to the same table.
+router.put('/cells', async (req, res, next) => {
+  try {
+    const { card_id, variant_id, state } = req.body;
+    if (!Number.isInteger(card_id) || !Number.isInteger(variant_id) || !['none', 'need', 'have'].includes(state)) {
+      return res.status(400).json({ error: "card_id, variant_id and state ('none', 'need' or 'have') are required" });
+    }
+
+    if (state === 'none') {
+      await query('DELETE FROM topps_cells WHERE card_id = $1 AND variant_id = $2', [card_id, variant_id]);
+      return res.json({ card_id, variant_id, state });
+    }
+
+    const { rowCount } = await query(`
+      INSERT INTO topps_cells (card_id, variant_id, owned)
+      SELECT c.id, v.id, $3
+      FROM topps_cards c
+      JOIN topps_variants v ON v.table_id = c.table_id
+      WHERE c.id = $1 AND v.id = $2
+      ON CONFLICT (card_id, variant_id) DO UPDATE SET owned = EXCLUDED.owned
+    `, [card_id, variant_id, state === 'have']);
+    if (rowCount === 0) return res.status(404).json({ error: 'That card and column are not in the same table' });
+    res.json({ card_id, variant_id, state });
+  } catch (err) {
+    next(err);
   }
 });
 

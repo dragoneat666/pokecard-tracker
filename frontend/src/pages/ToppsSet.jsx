@@ -1,68 +1,110 @@
 // pages/ToppsSet.jsx — One Topps checklist, laid out like a regular set page
 //
-// Each card is a table row; the printings (logo colors, foils, ...) are
-// checkbox columns where a regular set would have Type / Rarity / etc.
+// A checklist holds tables. Each table is a sheet: named columns (printings —
+// logo colors, foils, diecuts...) and rows (cards), where the columns sit in
+// the slots a regular set uses for Type / Rarity / etc.
 //
-// Cards are grouped by which printings they actually have. Most cards share
-// the same printings and make up the main table; cards with their own special
-// printing (tin toppers, jumbo promos, diecuts, stickers) land in their own
-// table below with just a checkbox, like the Alternates section on a set page.
-// Toggling is optimistic with revert-on-failure, like the main card table.
+// Normal mode: click a box to mark have / need. Cells for a printing that
+// doesn't exist show a dash.
+// Edit mode ("Edit tables"): like editing a sheet — rename the table, rename
+// or add or remove columns, add / edit / remove rows, add whole tables, and
+// click a cell to cycle need -> have -> doesn't exist.
+//
+// Cell toggles are optimistic with revert-on-failure, like the main card
+// table. Structural edits call the API and then reload.
 
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
 
-// Title for an extra table: a single printing uses its own name ("Tin Topper");
-// several that share the part after the dash use that ("Blue Logo - Diecut" +
-// "Black Logo - Diecut" -> "Diecut"); otherwise they're joined.
-function groupTitle(variants) {
-  if (variants.length === 1) return variants[0].name;
-  const tails = variants.map(v => v.name.split(' - ').pop());
-  return tails.every(t => t === tails[0]) ? tails[0] : variants.map(v => v.name).join(' / ');
+const NEXT_STATE = { need: 'have', have: 'none', none: 'need' };
+
+function cellState(card, variantId) {
+  const v = card.cells[variantId];
+  return v === undefined ? 'none' : v ? 'have' : 'need';
 }
 
 export default function ToppsSet() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { toast, showToast } = useToast();
 
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
+  const [editMode, setEditMode] = useState(searchParams.get('edit') === '1');
+  const [resetKey, setResetKey] = useState(0);            // bumps after each edit so text boxes show the server's value
 
   const [search, setSearch]       = useState('');
-  const [missingIn, setMissingIn] = useState(null);     // variant id, or null
+  const [missingIn, setMissingIn] = useState(null);     // column id, or null
   const [onlyMissing, setOnlyMissing] = useState(false);
 
-  useEffect(() => {
-    setLoading(true);
-    api.topps.set(id)
-      .then(setData)
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    try {
+      setData(await api.topps.set(id));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  async function handleToggle(card, variantId) {
-    const current = card.cells[variantId];
-    if (current === undefined) return;
-    const next = !current;
+  useEffect(() => { setLoading(true); load(); }, [load]);
+
+  // Runs a structural edit, then reloads so the page matches the server (on
+  // failure too, which also resets any text box that was mid-edit).
+  async function run(action) {
+    try {
+      await action();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+    await load();
+    setResetKey(k => k + 1);
+  }
+
+  function setEdit(on) {
+    setEditMode(on);
+    setSearchParams(on ? { edit: '1' } : {});
+  }
+
+  // Optimistic cell change. value: true (have), false (need), undefined (doesn't exist).
+  async function changeCell(card, variantId, state) {
     const prev = data;
+    const value = state === 'none' ? undefined : state === 'have';
     setData(d => ({
       ...d,
-      cards: d.cards.map(c => c.id === card.id ? { ...c, cells: { ...c.cells, [variantId]: next } } : c),
+      tables: d.tables.map(t => ({
+        ...t,
+        cards: t.cards.map(c => {
+          if (c.id !== card.id) return c;
+          const cells = { ...c.cells };
+          if (value === undefined) delete cells[variantId]; else cells[variantId] = value;
+          return { ...c, cells };
+        }),
+      })),
     }));
     try {
-      await api.topps.setCell(card.id, variantId, next);
+      await api.topps.setCell(card.id, variantId, state);
     } catch (err) {
       setData(prev);
       showToast(`Failed to update: ${err.message}`, 'error');
     }
   }
 
-  async function handleDelete() {
-    if (!confirm(`Delete "${data.set.name}" and everything you've checked off in it? This can't be undone.`)) return;
+  function handleCellClick(card, variantId) {
+    const state = cellState(card, variantId);
+    if (editMode) {
+      changeCell(card, variantId, NEXT_STATE[state]);
+    } else if (state !== 'none') {
+      changeCell(card, variantId, state === 'have' ? 'need' : 'have');
+    }
+  }
+
+  async function handleDeleteChecklist() {
+    if (!confirm(`Delete "${data.set.name}" and everything in it? This can't be undone.`)) return;
     try {
       await api.topps.deleteSet(id);
       navigate('/topps');
@@ -78,52 +120,41 @@ export default function ToppsSet() {
     return <div className="panel" style={{ color: 'var(--danger)' }}>{error} — <Link to="/topps">back to Topps</Link></div>;
   }
 
-  const { set, variants, cards } = data;
-  const variantById = Object.fromEntries(variants.map(v => [v.id, v]));
+  const { set, tables } = data;
 
-  // ── Overall + per-printing progress ────────────────────────────────────────
+  // ── Progress ───────────────────────────────────────────────────────────────
   const perVariant = {};
-  variants.forEach(v => { perVariant[v.id] = { owned: 0, total: 0 }; });
-  let totalOwned = 0;
-  let totalCells = 0;
-  for (const c of cards) {
-    for (const [vid, owned] of Object.entries(c.cells)) {
-      perVariant[vid].total++;
-      totalCells++;
-      if (owned) { perVariant[vid].owned++; totalOwned++; }
+  let totalCards = 0, totalOwned = 0, totalCells = 0;
+  for (const t of tables) {
+    t.variants.forEach(v => { perVariant[v.id] = { owned: 0, total: 0 }; });
+    totalCards += t.cards.length;
+    for (const c of t.cards) {
+      for (const [vid, owned] of Object.entries(c.cells)) {
+        perVariant[vid].total++;
+        totalCells++;
+        if (owned) { perVariant[vid].owned++; totalOwned++; }
+      }
     }
   }
   const pct = totalCells > 0 ? (totalOwned / totalCells) * 100 : 0;
 
-  // ── Group cards by the printings they have ─────────────────────────────────
-  const byShape = new Map();
-  for (const card of cards) {
-    const ids = variants.filter(v => card.cells[v.id] !== undefined).map(v => v.id);
-    if (ids.length === 0) continue;
-    const key = ids.join(',');
-    if (!byShape.has(key)) byShape.set(key, { key, variants: ids.map(i => variantById[i]), cards: [] });
-    byShape.get(key).cards.push(card);
-  }
-  const shapes = [...byShape.values()];
-  const mainShape = shapes.reduce((a, b) => (b.cards.length > a.cards.length ? b : a), shapes[0]);
-  const orderedShapes = shapes.length > 0 ? [mainShape, ...shapes.filter(s => s !== mainShape)] : [];
-
-  // ── Filters ────────────────────────────────────────────────────────────────
+  // ── Filters (normal mode only) ─────────────────────────────────────────────
   const q = search.trim().toLowerCase();
-  const filtering = !!q || missingIn !== null || onlyMissing;
+  const filtering = !editMode && (!!q || missingIn !== null || onlyMissing);
   const keep = c => {
+    if (!filtering) return true;
     if (q && !`${c.number} ${c.name}`.toLowerCase().includes(q)) return false;
     if (missingIn !== null && c.cells[missingIn] !== false) return false;
     if (onlyMissing && !Object.values(c.cells).some(v => v === false)) return false;
     return true;
   };
-  const visible = orderedShapes
-    .map(s => ({ ...s, shown: s.cards.filter(keep) }))
-    .filter(s => s.shown.length > 0 || !filtering);
-  const shownCount = visible.reduce((n, s) => n + s.shown.length, 0);
+  const visible = tables
+    .map(t => ({ ...t, shown: t.cards.filter(keep) }))
+    .filter(t => !filtering || t.shown.length > 0);
+  const shownCount = visible.reduce((n, t) => n + t.shown.length, 0);
 
   const statBoxes = [
-    { label: 'Cards',      value: cards.length },
+    { label: 'Cards',      value: totalCards },
     { label: 'Checked',    value: `${totalOwned} / ${totalCells}` },
     { label: 'Completion', value: `${pct.toFixed(1)}%`, highlight: pct >= 100 },
   ];
@@ -136,7 +167,12 @@ export default function ToppsSet() {
         {' / '}<span>{set.name}</span>
       </div>
 
-      <h1 style={{ fontSize: '1.5rem', marginBottom: 'var(--space-4)' }}>{set.name}</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>
+        <h1 style={{ fontSize: '1.5rem' }}>{set.name}</h1>
+        <button className={`btn ${editMode ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setEdit(!editMode)}>
+          {editMode ? '✓ Done editing' : '✎ Edit tables'}
+        </button>
+      </div>
 
       {/* ── Stats ── */}
       <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
@@ -148,110 +184,72 @@ export default function ToppsSet() {
         ))}
       </div>
 
-      {/* ── Filters ── */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          className={`btn btn-sm ${onlyMissing ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => setOnlyMissing(o => !o)}
-        >
-          Cards missing something
-        </button>
-        <select
-          className="input"
-          value={missingIn ?? ''}
-          onChange={e => setMissingIn(e.target.value === '' ? null : parseInt(e.target.value, 10))}
-          style={{ width: 'auto', maxWidth: 280 }}
-        >
-          <option value="">Missing in any printing</option>
-          {variants.map(v => <option key={v.id} value={v.id}>Missing in: {v.name}</option>)}
-        </select>
-        <input className="input" placeholder="Search number or name…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240 }} />
-        {filtering && (
-          <button className="btn btn-sm btn-ghost" onClick={() => { setSearch(''); setMissingIn(null); setOnlyMissing(false); }}>Clear</button>
-        )}
-        <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-          {shownCount} card{shownCount !== 1 ? 's' : ''}
-        </span>
-      </div>
+      {editMode ? (
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+          Edit like a sheet: change names and titles in place, add or remove columns and rows, and click a
+          box to cycle it — <strong>need</strong> (empty) → <strong>have</strong> (checked) → <strong>doesn't exist</strong> (dash).
+        </p>
+      ) : (
+        /* ── Filters ── */
+        <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className={`btn btn-sm ${onlyMissing ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setOnlyMissing(o => !o)}>
+            Cards missing something
+          </button>
+          <select
+            className="input"
+            value={missingIn ?? ''}
+            onChange={e => setMissingIn(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+            style={{ width: 'auto', maxWidth: 300 }}
+          >
+            <option value="">Missing in any printing</option>
+            {tables.map((t, i) => (
+              <optgroup key={t.id} label={t.title || (tables.length > 1 ? `Table ${i + 1}` : 'Printings')}>
+                {t.variants.map(v => <option key={v.id} value={v.id}>Missing in: {v.name}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <input className="input" placeholder="Search number or name…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 240 }} />
+          {filtering && (
+            <button className="btn btn-sm btn-ghost" onClick={() => { setSearch(''); setMissingIn(null); setOnlyMissing(false); }}>Clear</button>
+          )}
+          <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            {shownCount} card{shownCount !== 1 ? 's' : ''}
+          </span>
+        </div>
+      )}
 
       {/* ── Tables ── */}
       {visible.length === 0 && (
         <div className="panel" style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
-          No cards match the current filter.
+          {filtering ? 'No cards match the current filter.' : 'No tables yet — use “Edit tables” to add one.'}
         </div>
       )}
 
-      {visible.map(shape => {
-        const isMain = shape === visible[0] && shape.key === mainShape.key;
-        const single = shape.variants.length === 1;
-        const compact = !isMain && shape.variants.length <= 2;     // keep tiny tables from stretching across the page
-        const owned =shape.cards.reduce((n, c) => n + Object.values(c.cells).filter(Boolean).length, 0);
-        const total = shape.cards.reduce((n, c) => n + Object.keys(c.cells).length, 0);
-        return (
-          <div key={shape.key} style={{ marginTop: isMain ? 0 : 'var(--space-6)' }}>
-            {!isMain && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                <span style={{ fontSize: '1.1rem', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                  {groupTitle(shape.variants)}
-                  <span style={{ marginLeft: 'var(--space-3)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{owned} / {total}</span>
-                </span>
-                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-              </div>
-            )}
+      {visible.map((table, idx) => (
+        <TableSection
+          key={table.id}
+          table={table}
+          first={idx === 0}
+          editMode={editMode}
+          perVariant={perVariant}
+          missingIn={missingIn}
+          setMissingIn={setMissingIn}
+          onCellClick={handleCellClick}
+          run={run}
+          resetKey={resetKey}
+        />
+      ))}
 
-            <div className="panel" style={{ padding: 0, overflow: 'hidden', maxWidth: compact ? 640 : undefined }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-                      <th style={thStyle}>#</th>
-                      <th style={thStyle}>Name</th>
-                      {shape.variants.map(v => (
-                        <th
-                          key={v.id}
-                          onClick={() => setMissingIn(missingIn === v.id ? null : v.id)}
-                          title={`Click to show cards missing in ${v.name}`}
-                          style={{
-                            ...thStyle,
-                            textAlign: 'center',
-                            whiteSpace: 'normal',
-                            minWidth: 90,
-                            cursor: 'pointer',
-                            userSelect: 'none',
-                            color: missingIn === v.id ? 'var(--accent)' : 'var(--text-secondary)',
-                          }}
-                        >
-                          {single && !isMain ? 'Owned' : v.name}
-                          {!(single && !isMain) && (
-                            <div style={{ marginTop: 3, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'none' }}>
-                              {perVariant[v.id].owned} / {perVariant[v.id].total}
-                            </div>
-                          )}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {shape.shown.map((card, idx) => (
-                      <ToppsRow
-                        key={card.id}
-                        card={card}
-                        variants={shape.variants}
-                        zebra={idx % 2 === 1}
-                        onToggle={handleToggle}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {editMode && (
+        <div style={{ marginTop: 'var(--space-5)' }}>
+          <button className="btn btn-ghost" onClick={() => run(() => api.topps.addTable(id, ''))}>
+            + Add table
+          </button>
+        </div>
+      )}
 
       <div style={{ marginTop: 'var(--space-6)', textAlign: 'right' }}>
-        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={handleDelete}>
+        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={handleDeleteChecklist}>
           Delete this checklist
         </button>
       </div>
@@ -261,7 +259,146 @@ export default function ToppsSet() {
   );
 }
 
-function ToppsRow({ card, variants, zebra, onToggle }) {
+// ── One table ─────────────────────────────────────────────────────────────────
+function TableSection({ table, first, editMode, perVariant, missingIn, setMissingIn, onCellClick, run, resetKey }) {
+  const titled = table.title !== '';
+  const compact = !editMode && !first && table.variants.length <= 2;     // keep tiny tables from stretching across the page
+  const cells = table.cards.reduce((n, c) => n + Object.keys(c.cells).length, 0);
+  const owned = table.cards.reduce((n, c) => n + Object.values(c.cells).filter(Boolean).length, 0);
+  const multi = table.variants.length > 1;
+
+  function confirmDeleteColumn(v) {
+    const have = perVariant[v.id].owned;
+    if (have > 0 && !confirm(`Delete the column "${v.name}"? It has ${have} checked card${have !== 1 ? 's' : ''}, which will be lost.`)) return;
+    run(() => api.topps.deleteVariant(v.id));
+  }
+
+  function confirmDeleteRow(card) {
+    const have = Object.values(card.cells).filter(Boolean).length;
+    if (have > 0 && !confirm(`Delete "${card.name}"? It has ${have} checked printing${have !== 1 ? 's' : ''}, which will be lost.`)) return;
+    run(() => api.topps.deleteCard(card.id));
+  }
+
+  function confirmDeleteTable() {
+    const label = titled ? `"${table.title}"` : 'this table';
+    if (!confirm(`Delete ${label} and its ${table.cards.length} card${table.cards.length !== 1 ? 's' : ''}? This can't be undone.`)) return;
+    run(() => api.topps.deleteTable(table.id));
+  }
+
+  return (
+    <div style={{ marginTop: first ? 0 : 'var(--space-6)' }}>
+      {/* Heading (normal mode) or title box (edit mode) */}
+      {editMode ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+          <EditableText
+            value={table.title}
+            resetKey={resetKey}
+            placeholder="Table title (optional)"
+            onSave={title => run(() => api.topps.updateTable(table.id, title))}
+            style={{ width: 280, fontFamily: 'var(--font-display)', fontWeight: 700 }}
+          />
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={confirmDeleteTable}>
+            Delete table
+          </button>
+        </div>
+      ) : titled && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <span style={{ fontSize: '1.1rem', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+            {table.title}
+            <span style={{ marginLeft: 'var(--space-3)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>{owned} / {cells}</span>
+          </span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+        </div>
+      )}
+
+      <div className="panel" style={{ padding: 0, overflow: 'hidden', maxWidth: compact ? 640 : undefined }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+                <th style={thStyle}>#</th>
+                <th style={thStyle}>Name</th>
+                {table.variants.map(v => editMode ? (
+                  <th key={v.id} style={{ ...thStyle, textAlign: 'center', minWidth: 130 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <EditableText
+                        value={v.name}
+                        resetKey={resetKey}
+                        required
+                        onSave={name => run(() => api.topps.updateVariant(v.id, name))}
+                        style={{ width: 120, fontSize: '0.75rem', textAlign: 'center' }}
+                      />
+                      <button className="btn btn-ghost btn-sm" title="Delete column" style={iconBtn} onClick={() => confirmDeleteColumn(v)}>×</button>
+                    </div>
+                  </th>
+                ) : (
+                  <th
+                    key={v.id}
+                    onClick={() => setMissingIn(missingIn === v.id ? null : v.id)}
+                    title={`Click to show cards missing in ${v.name}`}
+                    style={{
+                      ...thStyle,
+                      textAlign: 'center',
+                      whiteSpace: 'normal',
+                      minWidth: 90,
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      color: missingIn === v.id ? 'var(--accent)' : 'var(--text-secondary)',
+                    }}
+                  >
+                    {v.name}
+                    {multi && (
+                      <div style={{ marginTop: 3, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'none' }}>
+                        {perVariant[v.id].owned} / {perVariant[v.id].total}
+                      </div>
+                    )}
+                  </th>
+                ))}
+                {editMode && (
+                  <th style={{ ...thStyle, textAlign: 'center', minWidth: 130 }}>
+                    <AddColumn onAdd={name => run(() => api.topps.addVariant(table.id, name))} />
+                  </th>
+                )}
+                {editMode && <th style={thStyle} />}
+              </tr>
+            </thead>
+            <tbody>
+              {table.shown.map((card, idx) => (
+                <Row
+                  key={card.id}
+                  card={card}
+                  variants={table.variants}
+                  zebra={idx % 2 === 1}
+                  editMode={editMode}
+                  onCellClick={onCellClick}
+                  onEditCard={(number, name) => run(() => api.topps.updateCard(card.id, number, name))}
+                  onDelete={() => confirmDeleteRow(card)}
+                  resetKey={resetKey}
+                />
+              ))}
+              {table.shown.length === 0 && !editMode && (
+                <tr>
+                  <td colSpan={table.variants.length + 2} style={{ textAlign: 'center', padding: 'var(--space-5)', color: 'var(--text-muted)' }}>
+                    No cards yet.
+                  </td>
+                </tr>
+              )}
+              {editMode && (
+                <AddRow
+                  colSpan={table.variants.length + 2}
+                  onAdd={(number, name) => run(() => api.topps.addCard(table.id, number, name))}
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ card, variants, zebra, editMode, onCellClick, onEditCard, onDelete, resetKey }) {
   const [hovered, setHovered] = useState(false);
   return (
     <tr
@@ -273,27 +410,155 @@ function ToppsRow({ card, variants, zebra, onToggle }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <td style={tdStyle}>
-        <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 700 }}>
-          {card.number}
-        </span>
-      </td>
-      <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>{card.name}</td>
+      {editMode ? (
+        <>
+          <td style={tdStyle}>
+            <EditableText value={card.number} resetKey={resetKey} required style={{ width: 80, fontSize: '0.8rem' }}
+              onSave={number => onEditCard(number, card.name)} />
+          </td>
+          <td style={tdStyle}>
+            <EditableText value={card.name} resetKey={resetKey} required style={{ width: 240, fontSize: '0.85rem' }}
+              onSave={name => onEditCard(card.number, name)} />
+          </td>
+        </>
+      ) : (
+        <>
+          <td style={tdStyle}>
+            <span style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)', fontSize: '0.8rem', fontWeight: 700 }}>
+              {card.number}
+            </span>
+          </td>
+          <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>{card.name}</td>
+        </>
+      )}
       {variants.map(v => (
         <td key={v.id} style={{ ...tdStyle, textAlign: 'center' }}>
-          <Checkbox
-            checked={card.cells[v.id]}
-            onClick={() => onToggle(card, v.id)}
+          <CellBox
+            state={cellState(card, v.id)}
+            editable={editMode}
+            onClick={() => onCellClick(card, v.id)}
             title={`${card.name} — ${v.name}`}
           />
         </td>
       ))}
+      {editMode && <td />}
+      {editMode && (
+        <td style={{ ...tdStyle, textAlign: 'right' }}>
+          <button className="btn btn-ghost btn-sm" title="Delete row" style={iconBtn} onClick={onDelete}>×</button>
+        </td>
+      )}
     </tr>
   );
 }
 
-// Same look as the checkboxes on the card table.
-function Checkbox({ checked, onClick, title }) {
+// ── Edit-mode helpers ─────────────────────────────────────────────────────────
+
+// A text box that saves when you leave it (or press Enter); Escape undoes.
+// The key makes it pick up the server's value after each edit, including when
+// an edit was rejected and the box should snap back.
+function EditableText({ value, resetKey, onSave, required = false, placeholder, style }) {
+  return (
+    <input
+      key={`${value}|${resetKey}`}
+      className="input"
+      defaultValue={value}
+      placeholder={placeholder}
+      style={{ padding: '4px 8px', ...style }}
+      onBlur={e => {
+        const next = e.target.value.trim();
+        if (next === value) return;
+        if (required && !next) { e.target.value = value; return; }
+        onSave(next);
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') { e.currentTarget.value = value; e.currentTarget.blur(); }
+      }}
+    />
+  );
+}
+
+function AddColumn({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+
+  function submit() {
+    const trimmed = name.trim();
+    if (trimmed) onAdd(trimmed);
+    setName('');
+    setOpen(false);
+  }
+
+  if (!open) {
+    return <button className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}>+ Column</button>;
+  }
+  return (
+    <input
+      className="input"
+      autoFocus
+      placeholder="Column name"
+      value={name}
+      onChange={e => setName(e.target.value)}
+      onBlur={submit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') submit();
+        if (e.key === 'Escape') { setName(''); setOpen(false); }
+      }}
+      style={{ padding: '4px 8px', fontSize: '0.75rem', width: 120 }}
+    />
+  );
+}
+
+function AddRow({ colSpan, onAdd }) {
+  const [number, setNumber] = useState('');
+  const [name, setName] = useState('');
+  const numberRef = useRef(null);
+
+  function submit() {
+    if (!number.trim() || !name.trim()) return;
+    onAdd(number.trim(), name.trim());
+    setNumber('');
+    setName('');
+    numberRef.current?.focus();
+  }
+
+  const onEnter = e => { if (e.key === 'Enter') submit(); };
+  return (
+    <tr style={{ background: 'var(--bg-elevated)' }}>
+      <td style={tdStyle}>
+        <input ref={numberRef} className="input" placeholder="#" value={number} onChange={e => setNumber(e.target.value)} onKeyDown={onEnter}
+          style={{ padding: '4px 8px', width: 80, fontSize: '0.8rem' }} />
+      </td>
+      <td style={tdStyle}>
+        <input className="input" placeholder="New card name" value={name} onChange={e => setName(e.target.value)} onKeyDown={onEnter}
+          style={{ padding: '4px 8px', width: 240, fontSize: '0.85rem' }} />
+      </td>
+      <td style={tdStyle} colSpan={colSpan}>
+        <button className="btn btn-primary btn-sm" onClick={submit} disabled={!number.trim() || !name.trim()}>+ Add row</button>
+      </td>
+    </tr>
+  );
+}
+
+// Same look as the checkboxes on the card table; "none" is a dash.
+function CellBox({ state, editable, onClick, title }) {
+  if (state === 'none') {
+    return (
+      <div
+        title={editable ? `${title} (doesn't exist — click to add)` : undefined}
+        onClick={editable ? onClick : undefined}
+        style={{
+          width: 18, height: 18, margin: '0 auto', borderRadius: 4,
+          border: editable ? '2px dashed rgba(255,255,255,0.3)' : 'none',
+          color: 'var(--text-muted)', opacity: 0.6, lineHeight: '14px', textAlign: 'center',
+          cursor: editable ? 'pointer' : 'default',
+        }}
+      >
+        —
+      </div>
+    );
+  }
+  const checked = state === 'have';
   return (
     <div
       role="checkbox"
@@ -323,6 +588,8 @@ function Checkbox({ checked, onClick, title }) {
     </div>
   );
 }
+
+const iconBtn = { padding: '0 8px', fontSize: '1rem', lineHeight: 1.4, color: 'var(--danger)' };
 
 const thStyle = {
   padding: '10px 12px',

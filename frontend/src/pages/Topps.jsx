@@ -1,13 +1,12 @@
 // pages/Topps.jsx — Topps checklists overview
 //
 // Old Topps Pokemon cards (1999-2000s) aren't in any card database, so each
-// release is a hand-built checklist: cards down the side, printings (logo
-// colors, foils, diecuts...) across the top. This page lists the releases as
-// wide rows like the Collection page (logo, name and release date, counts,
-// progress), with Edit for the name / logo / release date, and imports new
-// ones from a CSV grid (see routes/topps.js for the format).
+// release is a hand-built checklist made of tables you edit like a sheet. This
+// page lists the releases as wide rows like the Collection page (logo, name and
+// release date, counts, progress), with Edit for the name / logo / release
+// date, and "New checklist" to start a blank one.
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import ToppsEditModal from '../components/ToppsEditModal.jsx';
@@ -19,12 +18,10 @@ export default function Topps() {
   const [error, setError]     = useState(null);
   const [editing, setEditing] = useState(null);
 
-  const [showImport, setShowImport] = useState(false);
-  const [importName, setImportName] = useState('');
-  const [importFile, setImportFile] = useState(null);
-  const [importing, setImporting]   = useState(false);
-  const [importError, setImportError] = useState(null);
-  const fileRef = useRef(null);
+  const [showNew, setShowNew]   = useState(false);
+  const [newName, setNewName]   = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
 
   useEffect(() => { load(); }, []);
 
@@ -39,26 +36,16 @@ export default function Topps() {
     }
   }
 
-  function handlePickFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setImportFile(file);
-    if (!importName) setImportName(file.name.replace(/\.csv$/i, '').replace(/[-_]+/g, ' ').trim());
-  }
-
-  async function handleImport() {
+  // A new checklist opens straight in edit mode so you can build its tables.
+  async function handleCreate() {
     try {
-      setImporting(true);
-      setImportError(null);
-      const formData = new FormData();
-      formData.append('name', importName.trim());
-      formData.append('file', importFile);
-      const result = await api.topps.importSet(formData);
-      navigate(`/topps/${result.id}`);
+      setCreating(true);
+      setCreateError(null);
+      const { id } = await api.topps.createSet(newName.trim());
+      navigate(`/topps/${id}?edit=1`);
     } catch (err) {
-      setImportError(err.message);
-    } finally {
-      setImporting(false);
+      setCreateError(err.message);
+      setCreating(false);
     }
   }
 
@@ -71,33 +58,30 @@ export default function Topps() {
             {sets.length} checklist{sets.length !== 1 ? 's' : ''} · what you have and need of the Topps Pokémon cards
           </span>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowImport(s => !s)}>
-          {showImport ? 'Cancel' : '⬆ Import checklist'}
+        <button className="btn btn-primary" onClick={() => setShowNew(s => !s)}>
+          {showNew ? 'Cancel' : '+ New checklist'}
         </button>
       </div>
 
-      {showImport && (
+      {showNew && (
         <div className="panel" style={{ marginBottom: 'var(--space-4)' }}>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-3)' }}>
-            Pick a CSV grid: number, name, then one column per printing. In each cell, <strong>0</strong> means
-            that printing doesn't exist for the card, <strong>blank</strong> means you need it, and anything
-            else (like 1) means you have it.
+            Name the checklist (for example “Topps Series 2”). You'll land in edit mode with a starter
+            table, where you set the columns and add the cards.
           </p>
-          {importError && <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>{importError}</div>}
+          {createError && <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>{createError}</div>}
           <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
-              {importFile ? importFile.name : 'Choose CSV…'}
-            </button>
-            <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handlePickFile} />
             <input
               className="input"
               placeholder="Checklist name"
-              value={importName}
-              onChange={e => setImportName(e.target.value)}
-              style={{ width: 260 }}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !creating) handleCreate(); }}
+              style={{ width: 300 }}
+              autoFocus
             />
-            <button className="btn btn-primary" onClick={handleImport} disabled={importing || !importFile || !importName.trim()}>
-              {importing ? 'Importing…' : 'Import'}
+            <button className="btn btn-primary" onClick={handleCreate} disabled={creating || !newName.trim()}>
+              {creating ? 'Creating…' : 'Create'}
             </button>
           </div>
         </div>
@@ -110,7 +94,7 @@ export default function Topps() {
       ) : sets.length === 0 ? (
         <div className="panel" style={{ textAlign: 'center', padding: 'var(--space-7)', color: 'var(--text-secondary)' }}>
           <div style={{ fontWeight: 700, marginBottom: 'var(--space-2)' }}>No checklists yet</div>
-          <div style={{ fontSize: '0.875rem' }}>Use “Import checklist” to add your first release.</div>
+          <div style={{ fontSize: '0.875rem' }}>Use “New checklist” to add your first release.</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>

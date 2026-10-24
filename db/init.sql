@@ -229,10 +229,11 @@ CREATE INDEX idx_bulk_rows_product ON bulk_listing_rows(tcgplayer_id);
 
 -- ─── TOPPS CHECKLISTS ────────────────────────────────────────────────────────
 -- Old Topps Pokemon cards (1999-2000s) aren't in the card APIs, so they're
--- tracked by hand: each release is a set with its own printing columns (logo
--- colors, silver/rainbow foils, diecuts, ...). topps_cells has a row for every
--- card/printing combination that EXISTS; no row means that printing doesn't
--- exist for that card (greyed out in the grid). owned is a simple have/need.
+-- tracked by hand like a spreadsheet: a checklist (release) holds several
+-- tables, each with its own named columns (printings: logo colors, foils,
+-- diecuts, ...) and rows (cards). topps_cells has a row for every card/column
+-- combination that EXISTS; no row means that printing doesn't exist for that
+-- card (shown as a dash). owned is a simple have/need.
 CREATE TABLE topps_sets (
   id           SERIAL PRIMARY KEY,
   name         TEXT NOT NULL UNIQUE,
@@ -242,21 +243,29 @@ CREATE TABLE topps_sets (
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE topps_variants (
+CREATE TABLE topps_tables (
   id          SERIAL PRIMARY KEY,
   set_id      INT NOT NULL REFERENCES topps_sets(id) ON DELETE CASCADE,
-  name        TEXT NOT NULL,
-  sort_order  INT NOT NULL DEFAULT 0,
-  UNIQUE (set_id, name)
+  title       TEXT NOT NULL DEFAULT '',      -- empty = no heading (the main table)
+  sort_order  INT NOT NULL DEFAULT 0
 );
 
-CREATE TABLE topps_cards (
+CREATE TABLE topps_variants (                -- a table's columns
   id          SERIAL PRIMARY KEY,
-  set_id      INT NOT NULL REFERENCES topps_sets(id) ON DELETE CASCADE,
+  table_id    INT NOT NULL REFERENCES topps_tables(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  sort_order  INT NOT NULL DEFAULT 0,
+  UNIQUE (table_id, name)
+);
+
+CREATE TABLE topps_cards (                   -- a table's rows
+  id          SERIAL PRIMARY KEY,
+  table_id    INT NOT NULL REFERENCES topps_tables(id) ON DELETE CASCADE,
   number      TEXT NOT NULL,                 -- text: "TV1", "E6", "00", "TT3"...
   name        TEXT NOT NULL,
   sort_order  INT NOT NULL DEFAULT 0,
-  UNIQUE (set_id, number)
+  image_url   TEXT,                          -- card picture, filled in later
+  UNIQUE (table_id, number)
 );
 
 CREATE TABLE topps_cells (
@@ -266,7 +275,8 @@ CREATE TABLE topps_cells (
   PRIMARY KEY (card_id, variant_id)
 );
 
-CREATE INDEX idx_topps_cards_set ON topps_cards(set_id);
+CREATE INDEX idx_topps_tables_set ON topps_tables(set_id);
+CREATE INDEX idx_topps_cards_table ON topps_cards(table_id);
 CREATE INDEX idx_topps_cells_variant ON topps_cells(variant_id);
 
 
