@@ -7,8 +7,9 @@
 // Normal mode: click a box to mark have / need. Cells for a printing that
 // doesn't exist show a dash.
 // Edit mode ("Edit tables"): like editing a sheet — rename the table, rename
-// or add or remove columns, add / edit / remove rows, add whole tables, and
-// click a cell to cycle need -> have -> doesn't exist.
+// or add or remove columns, add / edit / remove rows, add whole tables, paste
+// a whole sheet in from Excel, and click a cell to cycle need -> have ->
+// doesn't exist.
 //
 // Cell toggles are optimistic with revert-on-failure, like the main card
 // table. Structural edits call the API and then reload.
@@ -17,6 +18,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
+import ToppsPasteModal from '../components/ToppsPasteModal.jsx';
 
 const NEXT_STATE = { need: 'have', have: 'none', none: 'need' };
 
@@ -36,6 +38,7 @@ export default function ToppsSet() {
   const [error, setError]     = useState(null);
   const [editMode, setEditMode] = useState(searchParams.get('edit') === '1');
   const [resetKey, setResetKey] = useState(0);            // bumps after each edit so text boxes show the server's value
+  const [pasteTable, setPasteTable] = useState(null);     // the table the paste window is open for
 
   const [search, setSearch]       = useState('');
   const [missingIn, setMissingIn] = useState(null);     // column id, or null
@@ -237,8 +240,19 @@ export default function ToppsSet() {
           onCellClick={handleCellClick}
           run={run}
           resetKey={resetKey}
+          onPaste={() => setPasteTable(table)}
         />
       ))}
+
+      {pasteTable && (
+        <ToppsPasteModal
+          table={pasteTable}
+          onClose={changed => {
+            setPasteTable(null);
+            if (changed) run(async () => {});          // just reloads
+          }}
+        />
+      )}
 
       {editMode && (
         <div style={{ marginTop: 'var(--space-5)' }}>
@@ -260,7 +274,7 @@ export default function ToppsSet() {
 }
 
 // ── One table ─────────────────────────────────────────────────────────────────
-function TableSection({ table, first, editMode, perVariant, missingIn, setMissingIn, onCellClick, run, resetKey }) {
+function TableSection({ table, first, editMode, perVariant, missingIn, setMissingIn, onCellClick, run, resetKey, onPaste }) {
   const titled = table.title !== '';
   const compact = !editMode && !first && table.variants.length <= 2;     // keep tiny tables from stretching across the page
   const cells = table.cards.reduce((n, c) => n + Object.keys(c.cells).length, 0);
@@ -297,7 +311,10 @@ function TableSection({ table, first, editMode, perVariant, missingIn, setMissin
             onSave={title => run(() => api.topps.updateTable(table.id, title))}
             style={{ width: 280, fontFamily: 'var(--font-display)', fontWeight: 700 }}
           />
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={confirmDeleteTable}>
+          <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={onPaste}>
+            Paste from Excel
+          </button>
+          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={confirmDeleteTable}>
             Delete table
           </button>
         </div>

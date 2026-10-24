@@ -15,6 +15,7 @@
 //   PATCH  /api/topps/variants/:id          — rename a column
 //   DELETE /api/topps/variants/:id
 //   POST   /api/topps/tables/:id/cards      — add a row
+//   POST   /api/topps/tables/:id/paste      — add many rows (and columns) from pasted Excel cells
 //   PATCH  /api/topps/cards/:id             — edit a row's number / name
 //   DELETE /api/topps/cards/:id
 //   PUT    /api/topps/cells                 — set one cell: none | need | have
@@ -23,8 +24,9 @@
 // "doesn't exist" (none) means there is simply no cell.
 
 import { Router } from 'express';
-import { query } from '../db.js';
+import pool, { query } from '../db.js';
 import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
+import { parsePasted, applyPaste, PasteError } from '../utils/toppsPaste.js';
 
 const router = Router();
 
@@ -311,6 +313,39 @@ router.post('/tables/:id/cards', async (req, res, next) => {
     res.status(201).json({ id: rows[0].id });
   } catch (err) {
     if (!duplicate(err, res, 'This table already has a card with that number')) next(err);
+  }
+});
+
+// ─── POST /api/topps/tables/:id/paste ─────────────────────────────────────────
+// Body: { text } — cells copied from Excel (tab-separated) or CSV text. Format
+// and rules are in utils/toppsPaste.js. All or nothing: if anything fails, no
+// rows or columns are added.
+router.post('/tables/:id/paste', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const text = typeof req.body.text === 'string' ? req.body.text : '';
+    const parsed = parsePasted(text);
+    if (parsed.rows.length === 0) {
+      return res.status(400).json({ error: 'Nothing to add — paste rows that have a number and a name' });
+    }
+    const { rows: found } = await query('SELECT id FROM topps_tables WHERE id = $1', [id]);
+    if (found.length === 0) return res.status(404).json({ error: 'Table not found' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await applyPaste(client, id, parsed);
+      await client.query('COMMIT');
+      res.json(result);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      if (err instanceof PasteError) return res.status(400).json({ error: err.message });
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    next(err);
   }
 });
 

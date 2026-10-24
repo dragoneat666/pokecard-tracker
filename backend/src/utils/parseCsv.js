@@ -3,9 +3,12 @@
 // The older import route splits lines on newlines and commas, which breaks on
 // quoted fields containing commas (card names like "Professor's Research,
 // Turo"). This handles quotes, escaped quotes (""), CRLF and a leading BOM.
-// Returns an array of objects keyed by the header row.
+//
+// parseCsvRows works with any single-character delimiter, so the same code
+// reads comma-separated files and the tab-separated text Excel puts on the
+// clipboard. parseCsvObjects keys each row by the header row.
 
-export function parseCsvObjects(text) {
+export function parseCsvRows(text, delimiter = ',') {
   const records = [];
   let row = [];
   let field = '';
@@ -23,7 +26,7 @@ export function parseCsvObjects(text) {
       }
     } else if (ch === '"') {
       inQuotes = true;
-    } else if (ch === ',') {
+    } else if (ch === delimiter) {
       row.push(field);
       field = '';
     } else if (ch === '\n' || ch === '\r') {
@@ -41,11 +44,15 @@ export function parseCsvObjects(text) {
     records.push(row);
   }
 
-  const nonEmpty = records.filter(r => !(r.length === 1 && r[0] === ''));
-  if (nonEmpty.length === 0) return [];
+  return records.filter(r => !(r.length === 1 && r[0] === ''));
+}
 
-  const headers = nonEmpty[0].map(h => h.trim());
-  return nonEmpty.slice(1).map(cols => {
+export function parseCsvObjects(text) {
+  const rows = parseCsvRows(text);
+  if (rows.length === 0) return [];
+
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1).map(cols => {
     const obj = {};
     headers.forEach((h, i) => { obj[h] = (cols[i] ?? '').trim(); });
     return obj;

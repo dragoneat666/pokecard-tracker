@@ -25,7 +25,7 @@ const PORT = process.env.PORT || 3001;
 // Allow all origins — this is a private homelab app, not exposed to the internet.
 // This means you can open it from your phone, PC, or any device on your network.
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));   // room for pasting a few thousand spreadsheet rows
 
 // Request logger — visible in Dozzle
 app.use((req, _res, next) => {

@@ -139,6 +139,7 @@ admin: {
     addCard:       (tableId, number, name)  => request('POST',   `/topps/tables/${tableId}/cards`, { number, name }),
     updateCard:    (id, number, name)       => request('PATCH',  `/topps/cards/${id}`, { number, name }),
     deleteCard:    (id)                     => request('DELETE', `/topps/cards/${id}`),
+    pasteRows:     (tableId, text)          => request('POST',   `/topps/tables/${tableId}/paste`, { text }),
     // state: 'none' (printing doesn't exist) | 'need' | 'have'
     setCell:       (cardId, variantId, state) => request('PUT',  '/topps/cells', { card_id: cardId, variant_id: variantId, state }),
   },
