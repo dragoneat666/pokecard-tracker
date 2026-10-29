@@ -28,7 +28,7 @@ const decode = s => s
   .replace(/&quot;/g, '"').replace(/&#039;|&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
-const textOf = html => decode(html.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+export const textOf = html => decode(html.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 
 function attr(tag, name) {
   const m = tag.match(new RegExp(`\\s${name}="([^"]*)"`));

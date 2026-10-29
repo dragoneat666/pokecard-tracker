@@ -16,6 +16,7 @@ import bulkRouter from './routes/bulk.js';
 import imagesRouter from './routes/images.js';
 import exportsRouter from './routes/exports.js';
 import toppsRouter from './routes/topps.js';
+import coinsRouter from './routes/coins.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -48,6 +49,7 @@ app.use('/api/bulk', bulkRouter);
 app.use('/api/images', imagesRouter);
 app.use('/api/exports', exportsRouter);
 app.use('/api/topps', toppsRouter);
+app.use('/api/coins', coinsRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

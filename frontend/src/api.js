@@ -147,6 +147,24 @@ admin: {
     // state: 'none' (printing doesn't exist) | 'need' | 'have'
     setCell:       (cardId, variantId, state) => request('PUT',  '/topps/cells', { card_id: cardId, variant_id: variantId, state }),
   },
+  // ── Coins ─────────────────────────────────────────────────────────────────
+  coins: {
+    generations:      ()                         => request('GET',    '/coins/generations'),
+    generation:       (id)                       => request('GET',    `/coins/generations/${id}`),
+    deleteGeneration: (id)                       => request('DELETE', `/coins/generations/${id}`),
+    addCoin:          (genId, region, number, name) => request('POST', `/coins/generations/${genId}/coins`, { region, number, name }),
+    // data: any of { number, name, released_in, release_date, description }
+    updateCoin:       (id, data)                 => request('PATCH',  `/coins/${id}`, data),
+    deleteCoin:       (id)                       => request('DELETE', `/coins/${id}`),
+    // side: 'front' | 'back'; an empty url clears the picture
+    setPicture:       (id, side, url)            => request('PUT',    `/coins/${id}/picture`, { side, url }),
+    addVariety:       (coinId, name)             => request('POST',   `/coins/${coinId}/varieties`, { name }),
+    // data: { name } and / or { owned }
+    updateVariety:    (id, data)                 => request('PATCH',  `/coins/varieties/${id}`, data),
+    deleteVariety:    (id)                       => request('DELETE', `/coins/varieties/${id}`),
+    startImport:      (url)                      => request('POST',   '/coins/import', { url }),
+    importJob:        ()                         => request('GET',    '/coins/import'),
+  },
   // ── Bulk tracker ──────────────────────────────────────────────────────────
   bulk: {
     listings: () => request('GET', '/bulk/listings'),

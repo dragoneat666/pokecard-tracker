@@ -22,6 +22,7 @@ import { useToast } from '../hooks/useToast.js';
 import ToppsPasteModal from '../components/ToppsPasteModal.jsx';
 import ToppsPicturesPanel from '../components/ToppsPicturesPanel.jsx';
 import HoverPreview from '../components/HoverPreview.jsx';
+import { EditableText, PictureField, CellBox } from '../components/SheetControls.jsx';
 
 const PICTURE_COLUMN = { front: 'image_url', back: 'back_image_url' };
 
@@ -512,79 +513,6 @@ function Row({ card, variants, zebra, editMode, onCellClick, onPicture, onEditCa
 
 // ── Edit-mode helpers ─────────────────────────────────────────────────────────
 
-// A text box that saves when you leave it (or press Enter); Escape undoes.
-// The key makes it pick up the server's value after each edit, including when
-// an edit was rejected and the box should snap back.
-function EditableText({ value, resetKey, onSave, required = false, placeholder, style }) {
-  return (
-    <input
-      key={`${value}|${resetKey}`}
-      className="input"
-      defaultValue={value}
-      placeholder={placeholder}
-      style={{ padding: '4px 8px', ...style }}
-      onBlur={e => {
-        const next = e.target.value.trim();
-        if (next === value) return;
-        if (required && !next) { e.target.value = value; return; }
-        onSave(next);
-      }}
-      onKeyDown={e => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-        if (e.key === 'Escape') { e.currentTarget.value = value; e.currentTarget.blur(); }
-      }}
-    />
-  );
-}
-
-// A picture URL box with a small preview (hover it for full size). Saving
-// downloads the picture on the server, so the box shows a spinner meanwhile
-// and then the stored copy's URL. Empty = no picture.
-function PictureField({ url, resetKey, placeholder, onSave }) {
-  const [saving, setSaving] = useState(false);
-  const value = url || '';
-
-  async function save(next) {
-    setSaving(true);
-    try {
-      await onSave(next);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{ width: 24, height: 34, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {saving ? (
-          <span className="spinner" style={{ width: 14, height: 14 }} />
-        ) : url ? (
-          <HoverPreview images={[url]}>
-            <img src={url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, display: 'block' }} />
-          </HoverPreview>
-        ) : null}
-      </div>
-      <input
-        key={`${value}|${resetKey}`}
-        className="input"
-        defaultValue={value}
-        placeholder={placeholder}
-        disabled={saving}
-        title={value}
-        style={{ padding: '4px 8px', width: 170, fontSize: '0.75rem' }}
-        onBlur={e => {
-          const next = e.target.value.trim();
-          if (next !== value) save(next);
-        }}
-        onKeyDown={e => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-          if (e.key === 'Escape') { e.currentTarget.value = value; e.currentTarget.blur(); }
-        }}
-      />
-    </div>
-  );
-}
-
 function AddColumn({ onAdd }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -644,55 +572,6 @@ function AddRow({ colSpan, onAdd }) {
         <button className="btn btn-primary btn-sm" onClick={submit} disabled={!number.trim() || !name.trim()}>+ Add row</button>
       </td>
     </tr>
-  );
-}
-
-// Same look as the checkboxes on the card table; "none" is a dash.
-function CellBox({ state, editable, onClick, title }) {
-  if (state === 'none') {
-    return (
-      <div
-        title={editable ? `${title} (doesn't exist — click to add)` : undefined}
-        onClick={editable ? onClick : undefined}
-        style={{
-          width: 18, height: 18, margin: '0 auto', borderRadius: 4,
-          border: editable ? '2px dashed rgba(255,255,255,0.3)' : 'none',
-          color: 'var(--text-muted)', opacity: 0.6, lineHeight: '14px', textAlign: 'center',
-          cursor: editable ? 'pointer' : 'default',
-        }}
-      >
-        —
-      </div>
-    );
-  }
-  const checked = state === 'have';
-  return (
-    <div
-      role="checkbox"
-      aria-checked={checked}
-      title={title}
-      onClick={onClick}
-      style={{
-        width: 18,
-        height: 18,
-        margin: '0 auto',
-        borderRadius: 4,
-        border: `2px solid ${checked ? 'var(--success)' : 'rgba(255,255,255,0.5)'}`,
-        background: checked ? 'var(--success)' : 'transparent',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'all var(--transition)',
-        flexShrink: 0,
-      }}
-    >
-      {checked && (
-        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-          <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
-    </div>
   );
 }
 

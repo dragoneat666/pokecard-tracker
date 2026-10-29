@@ -7,6 +7,8 @@ import Bulk      from './pages/Bulk.jsx';
 import Exports   from './pages/Exports.jsx';
 import Topps     from './pages/Topps.jsx';
 import ToppsSet  from './pages/ToppsSet.jsx';
+import Coins     from './pages/Coins.jsx';
+import CoinGeneration from './pages/CoinGeneration.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -39,6 +41,7 @@ function Layout() {
         </NavLink>
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
         <NavLink to="/topps" style={navStyle}>Topps</NavLink>
+        <NavLink to="/coins" style={navStyle}>Coins</NavLink>
         <NavLink to="/reports" style={navStyle}>Reports</NavLink>
         <NavLink to="/bulk" style={navStyle}>Bulk</NavLink>
         <NavLink to="/admin" style={navStyle}>Admin</NavLink>
@@ -53,6 +56,8 @@ function Layout() {
           <Route path="/sets/:id" element={<SetView />} />
           <Route path="/topps"    element={<Topps />} />
           <Route path="/topps/:id" element={<ToppsSet />} />
+          <Route path="/coins"    element={<Coins />} />
+          <Route path="/coins/:id" element={<CoinGeneration />} />
           <Route path="/reports"  element={<Reports />} />
           <Route path="/bulk"     element={<Bulk />} />
           <Route path="/exports"  element={<Exports />} />

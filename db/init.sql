@@ -281,6 +281,44 @@ CREATE INDEX idx_topps_cards_table ON topps_cards(table_id);
 CREATE INDEX idx_topps_cells_variant ON topps_cells(variant_id);
 
 
+-- ─── COINS ───────────────────────────────────────────────────────────────────
+-- TCG coins, grouped by generation and imported from Bulbapedia's coin pages.
+-- Only North American coins are collected; the other regions are kept for
+-- reference. number runs 1..N per generation and region, in release order (it's
+-- what gets written on the coin sleeve). Every coin has at least one variety —
+-- a have/need box; coins that came in several versions get one per version.
+CREATE TABLE coin_generations (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,          -- "Generation I", as Bulbapedia heads it
+  sort_order  INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE coins (
+  id             SERIAL PRIMARY KEY,
+  generation_id  INT NOT NULL REFERENCES coin_generations(id) ON DELETE CASCADE,
+  region         TEXT NOT NULL,              -- "North America", "Japan", "South Korea"
+  number         INT NOT NULL,
+  name           TEXT NOT NULL,              -- "Silver Chansey"
+  released_in    TEXT NOT NULL DEFAULT '',   -- the product it came in
+  release_date   TEXT NOT NULL DEFAULT '',   -- as written: "January 9, 1999", "Autumn 1999"
+  description    TEXT NOT NULL DEFAULT '',
+  image_url      TEXT,                       -- front picture (a copy stored on our server)
+  back_image_url TEXT,                       -- back picture (a copy stored on our server)
+  source_key     TEXT,                       -- which Bulbapedia entry it came from; NULL if added by hand
+  UNIQUE (generation_id, region, number),
+  UNIQUE (generation_id, source_key)
+);
+
+CREATE TABLE coin_varieties (
+  id          SERIAL PRIMARY KEY,
+  coin_id     INT NOT NULL REFERENCES coins(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,                 -- "Regular", "Starlight Holo"...
+  owned       BOOLEAN NOT NULL DEFAULT false,
+  sort_order  INT NOT NULL DEFAULT 0,
+  UNIQUE (coin_id, name)
+);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits
