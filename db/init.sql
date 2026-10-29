@@ -264,7 +264,8 @@ CREATE TABLE topps_cards (                   -- a table's rows
   number      TEXT NOT NULL,                 -- text: "TV1", "E6", "00", "TT3"...
   name        TEXT NOT NULL,
   sort_order  INT NOT NULL DEFAULT 0,
-  image_url   TEXT,                          -- card picture, filled in later
+  image_url   TEXT,                          -- front picture (a copy stored on our server)
+  back_image_url TEXT,                       -- back picture (a copy stored on our server)
   UNIQUE (table_id, number)
 );
 

@@ -140,6 +140,10 @@ admin: {
     updateCard:    (id, number, name)       => request('PATCH',  `/topps/cards/${id}`, { number, name }),
     deleteCard:    (id)                     => request('DELETE', `/topps/cards/${id}`),
     pasteRows:     (tableId, text)          => request('POST',   `/topps/tables/${tableId}/paste`, { text }),
+    // side: 'front' | 'back'; an empty url clears the picture
+    setPicture:    (cardId, side, url)      => request('PUT',    `/topps/cards/${cardId}/picture`, { side, url }),
+    startPictures: (setId, url)             => request('POST',   `/topps/sets/${setId}/pictures`, { url }),
+    pictureJob:    (setId)                  => request('GET',    `/topps/sets/${setId}/pictures`),
     // state: 'none' (printing doesn't exist) | 'need' | 'have'
     setCell:       (cardId, variantId, state) => request('PUT',  '/topps/cells', { card_id: cardId, variant_id: variantId, state }),
   },

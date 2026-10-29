@@ -5,20 +5,25 @@
 // the slots a regular set uses for Type / Rarity / etc.
 //
 // Normal mode: click a box to mark have / need. Cells for a printing that
-// doesn't exist show a dash.
+// doesn't exist show a dash. Hover a card's name to see its front and back.
 // Edit mode ("Edit tables"): like editing a sheet — rename the table, rename
 // or add or remove columns, add / edit / remove rows, add whole tables, paste
 // a whole sheet in from Excel, and click a cell to cycle need -> have ->
-// doesn't exist.
+// doesn't exist. Each row also has Front / Back picture URL boxes, and the
+// pictures panel fills empty ones from the checklist's Bulbapedia page.
 //
-// Cell toggles are optimistic with revert-on-failure, like the main card
-// table. Structural edits call the API and then reload.
+// Cell toggles and picture changes are optimistic with revert-on-failure, like
+// the main card table. Structural edits call the API and then reload.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
 import ToppsPasteModal from '../components/ToppsPasteModal.jsx';
+import ToppsPicturesPanel from '../components/ToppsPicturesPanel.jsx';
+import HoverPreview from '../components/HoverPreview.jsx';
+
+const PICTURE_COLUMN = { front: 'image_url', back: 'back_image_url' };
 
 const NEXT_STATE = { need: 'have', have: 'none', none: 'need' };
 
@@ -94,6 +99,28 @@ export default function ToppsSet() {
     } catch (err) {
       setData(prev);
       showToast(`Failed to update: ${err.message}`, 'error');
+    }
+  }
+
+  function patchCard(cardId, patch) {
+    setData(d => ({
+      ...d,
+      tables: d.tables.map(t => ({ ...t, cards: t.cards.map(c => (c.id === cardId ? { ...c, ...patch } : c)) })),
+    }));
+  }
+
+  // Optimistic picture change. The server downloads the picture and answers
+  // with the URL of its stored copy, which then replaces the typed one.
+  async function changePicture(card, side, url) {
+    const column = PICTURE_COLUMN[side];
+    const prev = card[column];
+    patchCard(card.id, { [column]: url || null });
+    try {
+      const saved = await api.topps.setPicture(card.id, side, url);
+      patchCard(card.id, { [column]: saved.url });
+    } catch (err) {
+      patchCard(card.id, { [column]: prev });
+      showToast(err.message, 'error');
     }
   }
 
@@ -188,10 +215,13 @@ export default function ToppsSet() {
       </div>
 
       {editMode ? (
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
-          Edit like a sheet: change names and titles in place, add or remove columns and rows, and click a
-          box to cycle it — <strong>need</strong> (empty) → <strong>have</strong> (checked) → <strong>doesn't exist</strong> (dash).
-        </p>
+        <>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+            Edit like a sheet: change names and titles in place, add or remove columns and rows, and click a
+            box to cycle it — <strong>need</strong> (empty) → <strong>have</strong> (checked) → <strong>doesn't exist</strong> (dash).
+          </p>
+          <ToppsPicturesPanel setId={id} onFinished={load} />
+        </>
       ) : (
         /* ── Filters ── */
         <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -238,6 +268,7 @@ export default function ToppsSet() {
           missingIn={missingIn}
           setMissingIn={setMissingIn}
           onCellClick={handleCellClick}
+          onPicture={changePicture}
           run={run}
           resetKey={resetKey}
           onPaste={() => setPasteTable(table)}
@@ -274,7 +305,7 @@ export default function ToppsSet() {
 }
 
 // ── One table ─────────────────────────────────────────────────────────────────
-function TableSection({ table, first, editMode, perVariant, missingIn, setMissingIn, onCellClick, run, resetKey, onPaste }) {
+function TableSection({ table, first, editMode, perVariant, missingIn, setMissingIn, onCellClick, onPicture, run, resetKey, onPaste }) {
   const titled = table.title !== '';
   const compact = !editMode && !first && table.variants.length <= 2;     // keep tiny tables from stretching across the page
   const cells = table.cards.reduce((n, c) => n + Object.keys(c.cells).length, 0);
@@ -336,6 +367,8 @@ function TableSection({ table, first, editMode, perVariant, missingIn, setMissin
               <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
                 <th style={thStyle}>#</th>
                 <th style={thStyle}>Name</th>
+                {editMode && <th style={thStyle}>Front picture URL</th>}
+                {editMode && <th style={thStyle}>Back picture URL</th>}
                 {table.variants.map(v => editMode ? (
                   <th key={v.id} style={{ ...thStyle, textAlign: 'center', minWidth: 130 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -389,6 +422,7 @@ function TableSection({ table, first, editMode, perVariant, missingIn, setMissin
                   zebra={idx % 2 === 1}
                   editMode={editMode}
                   onCellClick={onCellClick}
+                  onPicture={(side, url) => onPicture(card, side, url)}
                   onEditCard={(number, name) => run(() => api.topps.updateCard(card.id, number, name))}
                   onDelete={() => confirmDeleteRow(card)}
                   resetKey={resetKey}
@@ -403,7 +437,7 @@ function TableSection({ table, first, editMode, perVariant, missingIn, setMissin
               )}
               {editMode && (
                 <AddRow
-                  colSpan={table.variants.length + 2}
+                  colSpan={table.variants.length + 4}
                   onAdd={(number, name) => run(() => api.topps.addCard(table.id, number, name))}
                 />
               )}
@@ -415,7 +449,7 @@ function TableSection({ table, first, editMode, perVariant, missingIn, setMissin
   );
 }
 
-function Row({ card, variants, zebra, editMode, onCellClick, onEditCard, onDelete, resetKey }) {
+function Row({ card, variants, zebra, editMode, onCellClick, onPicture, onEditCard, onDelete, resetKey }) {
   const [hovered, setHovered] = useState(false);
   return (
     <tr
@@ -437,6 +471,12 @@ function Row({ card, variants, zebra, editMode, onCellClick, onEditCard, onDelet
             <EditableText value={card.name} resetKey={resetKey} required style={{ width: 240, fontSize: '0.85rem' }}
               onSave={name => onEditCard(card.number, name)} />
           </td>
+          <td style={tdStyle}>
+            <PictureField url={card.image_url} resetKey={resetKey} placeholder="Front picture URL" onSave={url => onPicture('front', url)} />
+          </td>
+          <td style={tdStyle}>
+            <PictureField url={card.back_image_url} resetKey={resetKey} placeholder="Back picture URL" onSave={url => onPicture('back', url)} />
+          </td>
         </>
       ) : (
         <>
@@ -445,7 +485,9 @@ function Row({ card, variants, zebra, editMode, onCellClick, onEditCard, onDelet
               {card.number}
             </span>
           </td>
-          <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>{card.name}</td>
+          <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <HoverPreview images={[card.image_url, card.back_image_url]}>{card.name}</HoverPreview>
+          </td>
         </>
       )}
       {variants.map(v => (
@@ -492,6 +534,54 @@ function EditableText({ value, resetKey, onSave, required = false, placeholder, 
         if (e.key === 'Escape') { e.currentTarget.value = value; e.currentTarget.blur(); }
       }}
     />
+  );
+}
+
+// A picture URL box with a small preview (hover it for full size). Saving
+// downloads the picture on the server, so the box shows a spinner meanwhile
+// and then the stored copy's URL. Empty = no picture.
+function PictureField({ url, resetKey, placeholder, onSave }) {
+  const [saving, setSaving] = useState(false);
+  const value = url || '';
+
+  async function save(next) {
+    setSaving(true);
+    try {
+      await onSave(next);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ width: 24, height: 34, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {saving ? (
+          <span className="spinner" style={{ width: 14, height: 14 }} />
+        ) : url ? (
+          <HoverPreview images={[url]}>
+            <img src={url} alt="" style={{ width: 24, height: 34, objectFit: 'cover', borderRadius: 3, display: 'block' }} />
+          </HoverPreview>
+        ) : null}
+      </div>
+      <input
+        key={`${value}|${resetKey}`}
+        className="input"
+        defaultValue={value}
+        placeholder={placeholder}
+        disabled={saving}
+        title={value}
+        style={{ padding: '4px 8px', width: 170, fontSize: '0.75rem' }}
+        onBlur={e => {
+          const next = e.target.value.trim();
+          if (next !== value) save(next);
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+          if (e.key === 'Escape') { e.currentTarget.value = value; e.currentTarget.blur(); }
+        }}
+      />
+    </div>
   );
 }
 

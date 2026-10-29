@@ -8,6 +8,8 @@
 //   GET    /api/topps/sets/:id              — a checklist with all its tables
 //   PATCH  /api/topps/sets/:id              — edit name, logo URL and release date
 //   DELETE /api/topps/sets/:id
+//   POST   /api/topps/sets/:id/pictures     — start filling card pictures from a Bulbapedia page
+//   GET    /api/topps/sets/:id/pictures     — progress / result of that
 //   POST   /api/topps/sets/:id/tables       — add a table
 //   PATCH  /api/topps/tables/:id            — rename a table
 //   DELETE /api/topps/tables/:id
@@ -17,16 +19,33 @@
 //   POST   /api/topps/tables/:id/cards      — add a row
 //   POST   /api/topps/tables/:id/paste      — add many rows (and columns) from pasted Excel cells
 //   PATCH  /api/topps/cards/:id             — edit a row's number / name
+//   PUT    /api/topps/cards/:id/picture     — set or clear a card's front / back picture
 //   DELETE /api/topps/cards/:id
 //   PUT    /api/topps/cells                 — set one cell: none | need | have
 //
 // New columns and rows get a "need" cell for every row/column already there;
 // "doesn't exist" (none) means there is simply no cell.
+//
+// Card pictures are always copies stored on our server (/logos/topps/...), never
+// hotlinks; deleting a card, table or checklist deletes its copies too.
 
 import { Router } from 'express';
 import pool, { query } from '../db.js';
-import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
+import { downloadAndLocalizeImage, downloadImageStrict, deleteLocalImages, isLocalImage } from '../utils/imageDownload.js';
 import { parsePasted, applyPaste, PasteError } from '../utils/toppsPaste.js';
+import { checkPageUrl, startPictureJob, getPictureJob } from '../utils/toppsPictureJob.js';
+
+const PICTURE_COLUMNS = { front: 'image_url', back: 'back_image_url' };
+
+// The stored picture URLs of every card matching a WHERE clause on c / t.
+async function pictureUrls(where, params) {
+  const { rows } = await query(`
+    SELECT c.image_url, c.back_image_url
+    FROM topps_cards c JOIN topps_tables t ON t.id = c.table_id
+    WHERE ${where}
+  `, params);
+  return rows.flatMap(r => [r.image_url, r.back_image_url]);
+}
 
 const router = Router();
 
@@ -119,7 +138,7 @@ router.get('/sets/:id', async (req, res, next) => {
       WHERE t.set_id = $1 ORDER BY v.sort_order, v.id
     `, [id]);
     const { rows: cards } = await query(`
-      SELECT c.id, c.table_id, c.number, c.name, c.image_url
+      SELECT c.id, c.table_id, c.number, c.name, c.image_url, c.back_image_url
       FROM topps_cards c JOIN topps_tables t ON t.id = c.table_id
       WHERE t.set_id = $1 ORDER BY c.sort_order, c.id
     `, [id]);
@@ -135,7 +154,10 @@ router.get('/sets/:id', async (req, res, next) => {
     const cardMap = new Map();
     for (const v of variants) tableMap.get(v.table_id).variants.push({ id: v.id, name: v.name });
     for (const c of cards) {
-      const card = { id: c.id, number: c.number, name: c.name, image_url: c.image_url, cells: {} };
+      const card = {
+        id: c.id, number: c.number, name: c.name,
+        image_url: c.image_url, back_image_url: c.back_image_url, cells: {},
+      };
       cardMap.set(c.id, card);
       tableMap.get(c.table_id).cards.push(card);
     }
@@ -179,12 +201,41 @@ router.patch('/sets/:id', async (req, res, next) => {
 // ─── DELETE /api/topps/sets/:id ───────────────────────────────────────────────
 router.delete('/sets/:id', async (req, res, next) => {
   try {
+    const urls = await pictureUrls('t.set_id = $1', [req.params.id]);
     const { rowCount } = await query('DELETE FROM topps_sets WHERE id = $1', [req.params.id]);
     if (rowCount === 0) return res.status(404).json({ error: 'Checklist not found' });
+    deleteLocalImages(urls, 'topps');
     res.status(204).send();
   } catch (err) {
     next(err);
   }
+});
+
+// ─── POST /api/topps/sets/:id/pictures ────────────────────────────────────────
+// Body: { url } — a Bulbapedia series page. Starts a background job that fills
+// in every card picture that's still empty; poll GET for progress.
+router.post('/sets/:id/pictures', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const pageUrl = checkPageUrl(req.body.url);
+    if (!pageUrl) {
+      return res.status(400).json({ error: 'Use a Bulbapedia page link (https://bulbapedia.bulbagarden.net/wiki/...)' });
+    }
+    const { rows } = await query('SELECT id FROM topps_sets WHERE id = $1', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Checklist not found' });
+
+    const job = startPictureJob(id, pageUrl);
+    if (!job) return res.status(409).json({ error: 'Pictures are already being fetched for this checklist' });
+    res.status(202).json(job);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/topps/sets/:id/pictures ─────────────────────────────────────────
+// The latest picture job for this checklist (since the backend started), or null.
+router.get('/sets/:id/pictures', (req, res) => {
+  res.json(getPictureJob(req.params.id));
 });
 
 // ─── POST /api/topps/sets/:id/tables ──────────────────────────────────────────
@@ -227,8 +278,10 @@ router.patch('/tables/:id', async (req, res, next) => {
 // ─── DELETE /api/topps/tables/:id ─────────────────────────────────────────────
 router.delete('/tables/:id', async (req, res, next) => {
   try {
+    const urls = await pictureUrls('t.id = $1', [req.params.id]);
     const { rowCount } = await query('DELETE FROM topps_tables WHERE id = $1', [req.params.id]);
     if (rowCount === 0) return res.status(404).json({ error: 'Table not found' });
+    deleteLocalImages(urls, 'topps');
     res.status(204).send();
   } catch (err) {
     next(err);
@@ -365,11 +418,46 @@ router.patch('/cards/:id', async (req, res, next) => {
   }
 });
 
+// ─── PUT /api/topps/cards/:id/picture ─────────────────────────────────────────
+// Body: { side: 'front' | 'back', url }. A new URL is downloaded and stored on
+// our server (a failed download changes nothing and says why); an empty url
+// clears the picture. A URL that's already our stored copy is kept as is.
+router.put('/cards/:id/picture', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const column = PICTURE_COLUMNS[req.body.side];
+    if (!column) return res.status(400).json({ error: "side must be 'front' or 'back'" });
+    const url = clean(req.body.url);
+
+    const { rows } = await query(`SELECT ${column} AS current FROM topps_cards WHERE id = $1`, [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+    const { current } = rows[0];
+    if (url === (current || '')) return res.json({ id: parseInt(id, 10), side: req.body.side, url: current });
+    if (url && isLocalImage(url)) return res.status(400).json({ error: 'That is a stored picture of another card — paste the original link instead' });
+
+    let local = null;
+    if (url) {
+      try {
+        local = await downloadImageStrict(url, 'topps', `${id}-${req.body.side}`);
+      } catch (err) {
+        return res.status(400).json({ error: `Couldn't download that picture: ${err.message}` });
+      }
+    }
+    await query(`UPDATE topps_cards SET ${column} = $1 WHERE id = $2`, [local, id]);
+    if (current !== local) deleteLocalImages([current], 'topps');
+    res.json({ id: parseInt(id, 10), side: req.body.side, url: local });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── DELETE /api/topps/cards/:id ──────────────────────────────────────────────
 router.delete('/cards/:id', async (req, res, next) => {
   try {
+    const urls = await pictureUrls('c.id = $1', [req.params.id]);
     const { rowCount } = await query('DELETE FROM topps_cards WHERE id = $1', [req.params.id]);
     if (rowCount === 0) return res.status(404).json({ error: 'Card not found' });
+    deleteLocalImages(urls, 'topps');
     res.status(204).send();
   } catch (err) {
     next(err);
