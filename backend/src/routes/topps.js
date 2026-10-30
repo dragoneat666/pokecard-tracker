@@ -2,8 +2,10 @@
 // Topps checklists — old Topps Pokemon cards tracked by hand (no price data),
 // edited like a spreadsheet. A checklist holds tables; a table has named
 // columns (printings) and rows (cards); each cell is have / need / doesn't exist.
+// The same engine backs the Burger King Cards tab: each checklist has a kind
+// ('topps' or 'burger_king') saying which tab lists it.
 //
-//   GET    /api/topps/sets                  — checklists with progress
+//   GET    /api/topps/sets?kind=…           — checklists of one kind (default topps) with progress
 //   POST   /api/topps/sets                  — new checklist (with one starter table)
 //   GET    /api/topps/sets/:id              — a checklist with all its tables
 //   PATCH  /api/topps/sets/:id              — edit name, logo URL and release date
@@ -36,6 +38,7 @@ import { parsePasted, applyPaste, PasteError } from '../utils/toppsPaste.js';
 import { checkPageUrl, startPictureJob, getPictureJob } from '../utils/toppsPictureJob.js';
 
 const PICTURE_COLUMNS = { front: 'image_url', back: 'back_image_url' };
+const KINDS = ['topps', 'burger_king'];
 
 // The stored picture URLs of every card matching a WHERE clause on c / t.
 async function pictureUrls(where, params) {
@@ -61,8 +64,10 @@ function duplicate(err, res, message) {
 }
 
 // ─── GET /api/topps/sets ──────────────────────────────────────────────────────
-router.get('/sets', async (_req, res, next) => {
+router.get('/sets', async (req, res, next) => {
   try {
+    const kind = req.query.kind ?? 'topps';
+    if (!KINDS.includes(kind)) return res.status(400).json({ error: `kind must be one of: ${KINDS.join(', ')}` });
     const { rows } = await query(`
       SELECT s.id, s.name, s.logo_url,
              to_char(s.release_date, 'YYYY-MM-DD')         AS release_date,
@@ -73,9 +78,10 @@ router.get('/sets', async (_req, res, next) => {
       LEFT JOIN topps_tables t ON t.set_id = s.id
       LEFT JOIN topps_cards c  ON c.table_id = t.id
       LEFT JOIN topps_cells cl ON cl.card_id = c.id
+      WHERE s.kind = $1
       GROUP BY s.id
       ORDER BY s.sort_order, s.name
-    `);
+    `, [kind]);
     res.json(rows.map(r => ({
       id: r.id,
       name: r.name,
@@ -91,16 +97,19 @@ router.get('/sets', async (_req, res, next) => {
 });
 
 // ─── POST /api/topps/sets ─────────────────────────────────────────────────────
-// A new checklist starts with one table and one column ("Owned") to build on.
+// Body: { name, kind } (kind defaults to topps). A new checklist starts with
+// one table and one column ("Owned") to build on.
 router.post('/sets', async (req, res, next) => {
   try {
     const name = clean(req.body.name);
+    const kind = req.body.kind ?? 'topps';
     if (!name) return res.status(400).json({ error: 'A name is required' });
+    if (!KINDS.includes(kind)) return res.status(400).json({ error: `kind must be one of: ${KINDS.join(', ')}` });
 
     const { rows } = await query(`
       WITH s AS (
-        INSERT INTO topps_sets (name, sort_order)
-        VALUES ($1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM topps_sets))
+        INSERT INTO topps_sets (name, kind, sort_order)
+        VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM topps_sets))
         RETURNING id
       ), t AS (
         INSERT INTO topps_tables (set_id, title, sort_order)
@@ -110,8 +119,8 @@ router.post('/sets', async (req, res, next) => {
         SELECT id, 'Owned', 0 FROM t RETURNING id
       )
       SELECT id FROM s
-    `, [name]);
-    res.status(201).json({ id: rows[0].id, name });
+    `, [name, kind]);
+    res.status(201).json({ id: rows[0].id, name, kind });
   } catch (err) {
     if (!duplicate(err, res, 'A checklist with that name already exists')) next(err);
   }
@@ -124,7 +133,7 @@ router.get('/sets/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { rows: setRows } = await query(`
-      SELECT id, name, logo_url, to_char(release_date, 'YYYY-MM-DD') AS release_date
+      SELECT id, name, kind, logo_url, to_char(release_date, 'YYYY-MM-DD') AS release_date
       FROM topps_sets WHERE id = $1
     `, [id]);
     if (setRows.length === 0) return res.status(404).json({ error: 'Checklist not found' });

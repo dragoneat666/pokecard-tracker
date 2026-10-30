@@ -234,9 +234,12 @@ CREATE INDEX idx_bulk_rows_product ON bulk_listing_rows(tcgplayer_id);
 -- diecuts, ...) and rows (cards). topps_cells has a row for every card/column
 -- combination that EXISTS; no row means that printing doesn't exist for that
 -- card (shown as a dash). owned is a simple have/need.
+-- The same engine backs other hand-built checklists too: kind says which tab
+-- a checklist belongs to.
 CREATE TABLE topps_sets (
   id           SERIAL PRIMARY KEY,
   name         TEXT NOT NULL UNIQUE,
+  kind         TEXT NOT NULL DEFAULT 'topps',  -- 'topps' or 'burger_king'
   logo_url     TEXT,                         -- set by hand in Edit; downloaded and stored locally
   release_date DATE,
   sort_order   INT NOT NULL DEFAULT 0,

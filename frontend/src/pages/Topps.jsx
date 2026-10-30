@@ -5,14 +5,19 @@
 // page lists the releases as wide rows like the Collection page (logo, name and
 // release date, counts, progress), with Edit for the name / logo / release
 // date, and "New checklist" to start a blank one.
+//
+// The Burger King Cards tab is this same page for checklists of kind
+// 'burger_king' (see checklistKinds.js).
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { kindOf } from '../checklistKinds.js';
 import ToppsEditModal from '../components/ToppsEditModal.jsx';
 
-export default function Topps() {
+export default function Topps({ kind = 'topps' }) {
   const navigate = useNavigate();
+  const tab = kindOf(kind);
   const [sets, setSets]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -28,7 +33,7 @@ export default function Topps() {
   async function load() {
     try {
       setLoading(true);
-      setSets(await api.topps.sets());
+      setSets(await api.topps.sets(kind));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -41,8 +46,8 @@ export default function Topps() {
     try {
       setCreating(true);
       setCreateError(null);
-      const { id } = await api.topps.createSet(newName.trim());
-      navigate(`/topps/${id}?edit=1`);
+      const { id } = await api.topps.createSet(newName.trim(), kind);
+      navigate(`${tab.path}/${id}?edit=1`);
     } catch (err) {
       setCreateError(err.message);
       setCreating(false);
@@ -53,9 +58,9 @@ export default function Topps() {
     <div style={{ maxWidth: 1300, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>
         <div>
-          <h1 style={{ fontSize: '1.5rem', marginBottom: 2 }}>Topps</h1>
+          <h1 style={{ fontSize: '1.5rem', marginBottom: 2 }}>{tab.title}</h1>
           <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            {sets.length} checklist{sets.length !== 1 ? 's' : ''} · what you have and need of the Topps Pokémon cards
+            {sets.length} checklist{sets.length !== 1 ? 's' : ''} · {tab.blurb}
           </span>
         </div>
         <button className="btn btn-primary" onClick={() => setShowNew(s => !s)}>
@@ -66,7 +71,7 @@ export default function Topps() {
       {showNew && (
         <div className="panel" style={{ marginBottom: 'var(--space-4)' }}>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 'var(--space-3)' }}>
-            Name the checklist (for example “Topps Series 2”). You'll land in edit mode with a starter
+            Name the checklist (for example “{tab.example}”). You'll land in edit mode with a starter
             table, where you set the columns and add the cards.
           </p>
           {createError && <div style={{ color: 'var(--danger)', fontSize: '0.875rem', marginBottom: 'var(--space-3)' }}>{createError}</div>}
@@ -102,7 +107,8 @@ export default function Topps() {
             <ToppsRow
               key={set.id}
               set={set}
-              onClick={() => navigate(`/topps/${set.id}`)}
+              badge={tab.badge}
+              onClick={() => navigate(`${tab.path}/${set.id}`)}
               onEdit={e => { e.stopPropagation(); setEditing(set); }}
             />
           ))}
@@ -122,7 +128,7 @@ export default function Topps() {
 
 // Same row layout as the Collection page's SetRow: logo, identity, counts,
 // progress, then the Edit button with the completion percentage.
-function ToppsRow({ set, onClick, onEdit }) {
+function ToppsRow({ set, badge, onClick, onEdit }) {
   const pct = set.cells > 0 ? (set.owned / set.cells) * 100 : 0;
 
   // release_date is a plain YYYY-MM-DD string; build the date locally so it
@@ -187,7 +193,7 @@ function ToppsRow({ set, onClick, onEdit }) {
             fontSize: '0.68rem', fontFamily: 'var(--font-display)',
             fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.05em',
           }}>
-            TOPPS
+            {badge}
           </span>
           {releaseDate && (
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{releaseDate}</span>

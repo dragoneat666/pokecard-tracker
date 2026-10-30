@@ -125,9 +125,10 @@ admin: {
   },
   // ── Topps checklists ──────────────────────────────────────────────────────
   topps: {
-    sets:          ()                       => request('GET',    '/topps/sets'),
+    // kind: 'topps' | 'burger_king' — which tab the checklists belong to
+    sets:          (kind = 'topps')         => request('GET',    `/topps/sets?kind=${kind}`),
     set:           (id)                     => request('GET',    `/topps/sets/${id}`),
-    createSet:     (name)                   => request('POST',   '/topps/sets', { name }),
+    createSet:     (name, kind = 'topps')   => request('POST',   '/topps/sets', { name, kind }),
     updateSet:     (id, data)               => request('PATCH',  `/topps/sets/${id}`, data),
     deleteSet:     (id)                     => request('DELETE', `/topps/sets/${id}`),
     addTable:      (setId, title)           => request('POST',   `/topps/sets/${setId}/tables`, { title }),

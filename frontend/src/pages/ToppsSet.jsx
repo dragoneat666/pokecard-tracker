@@ -12,17 +12,21 @@
 // doesn't exist. Each row also has Front / Back picture URL boxes, and the
 // pictures panel fills empty ones from the checklist's Bulbapedia page.
 //
+// Burger King checklists use this same page under /burger-king (the breadcrumb
+// follows the checklist's kind; the Bulbapedia pictures panel is Topps-only).
+//
 // Cell toggles and picture changes are optimistic with revert-on-failure, like
 // the main card table. Structural edits call the API and then reload.
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useToast } from '../hooks/useToast.js';
 import ToppsPasteModal from '../components/ToppsPasteModal.jsx';
 import ToppsPicturesPanel from '../components/ToppsPicturesPanel.jsx';
 import HoverPreview from '../components/HoverPreview.jsx';
 import { EditableText, PictureField, CellBox } from '../components/SheetControls.jsx';
+import { CHECKLIST_KINDS, kindOf } from '../checklistKinds.js';
 
 const PICTURE_COLUMN = { front: 'image_url', back: 'back_image_url' };
 
@@ -49,6 +53,11 @@ export default function ToppsSet() {
   const [search, setSearch]       = useState('');
   const [missingIn, setMissingIn] = useState(null);     // column id, or null
   const [onlyMissing, setOnlyMissing] = useState(false);
+
+  // Which tab this checklist belongs to (Topps / Burger King): the checklist
+  // says, or, before it has loaded, the address does.
+  const { pathname } = useLocation();
+  const tab = kindOf(data?.set.kind ?? (pathname.startsWith(CHECKLIST_KINDS.burger_king.path) ? 'burger_king' : 'topps'));
 
   const load = useCallback(async () => {
     try {
@@ -138,7 +147,7 @@ export default function ToppsSet() {
     if (!confirm(`Delete "${data.set.name}" and everything in it? This can't be undone.`)) return;
     try {
       await api.topps.deleteSet(id);
-      navigate('/topps');
+      navigate(tab.path);
     } catch (err) {
       showToast(`Delete failed: ${err.message}`, 'error');
     }
@@ -148,7 +157,7 @@ export default function ToppsSet() {
     return <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-7)' }}><span className="spinner" /></div>;
   }
   if (error) {
-    return <div className="panel" style={{ color: 'var(--danger)' }}>{error} — <Link to="/topps">back to Topps</Link></div>;
+    return <div className="panel" style={{ color: 'var(--danger)' }}>{error} — <Link to={tab.path}>back to {tab.title}</Link></div>;
   }
 
   const { set, tables } = data;
@@ -194,7 +203,7 @@ export default function ToppsSet() {
     <div style={{ maxWidth: 1700, margin: '0 auto' }}>
       {/* ── Breadcrumb ── */}
       <div style={{ marginBottom: 'var(--space-4)', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-        <Link to="/topps" style={{ color: 'var(--accent)', textDecoration: 'none' }}>Topps</Link>
+        <Link to={tab.path} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{tab.title}</Link>
         {' / '}<span>{set.name}</span>
       </div>
 
@@ -221,7 +230,7 @@ export default function ToppsSet() {
             Edit like a sheet: change names and titles in place, add or remove columns and rows, and click a
             box to cycle it — <strong>need</strong> (empty) → <strong>have</strong> (checked) → <strong>doesn't exist</strong> (dash).
           </p>
-          <ToppsPicturesPanel setId={id} onFinished={load} />
+          {tab.bulbapediaPictures && <ToppsPicturesPanel setId={id} onFinished={load} />}
         </>
       ) : (
         /* ── Filters ── */

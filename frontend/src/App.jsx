@@ -41,6 +41,7 @@ function Layout() {
         </NavLink>
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
         <NavLink to="/topps" style={navStyle}>Topps</NavLink>
+        <NavLink to="/burger-king" style={navStyle}>Burger King Cards</NavLink>
         <NavLink to="/coins" style={navStyle}>Coins</NavLink>
         <NavLink to="/reports" style={navStyle}>Reports</NavLink>
         <NavLink to="/bulk" style={navStyle}>Bulk</NavLink>
@@ -54,8 +55,10 @@ function Layout() {
         <Routes>
           <Route path="/"         element={<Dashboard />} />
           <Route path="/sets/:id" element={<SetView />} />
-          <Route path="/topps"    element={<Topps />} />
+          <Route path="/topps"    element={<Topps key="topps" kind="topps" />} />
           <Route path="/topps/:id" element={<ToppsSet />} />
+          <Route path="/burger-king"     element={<Topps key="burger_king" kind="burger_king" />} />
+          <Route path="/burger-king/:id" element={<ToppsSet />} />
           <Route path="/coins"    element={<Coins />} />
           <Route path="/coins/:id" element={<CoinGeneration />} />
           <Route path="/reports"  element={<Reports />} />
