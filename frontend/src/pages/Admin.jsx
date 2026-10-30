@@ -1,7 +1,8 @@
-// pages/Admin.jsx — Admin tools: Collection Import/Export + Backup/Restore + Series Map editor
+// pages/Admin.jsx — Admin tools: Collection Import/Export + Series Map editor + Rarities + Backup/Restore
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { APP_VERSION } from '../version.js';
+import { isCollectorRarity } from '../rarity.js';
 
 export default function Admin() {
   return (
@@ -15,6 +16,9 @@ export default function Admin() {
       <CollectionImportExport />
       <div style={{ marginTop: 'var(--space-7)' }}>
         <SeriesMapEditor />
+      </div>
+      <div style={{ marginTop: 'var(--space-7)' }}>
+        <RaritiesSection />
       </div>
       <div style={{ marginTop: 'var(--space-7)' }}>
         <BackupSection />
@@ -604,6 +608,120 @@ const rowStyle = {
   padding: '6px var(--space-4)',
   gap: 'var(--space-3)',
 };
+
+// ── Rarities ──────────────────────────────────────────────────────────────────
+// Whether each rarity counts as Regular or Full Art for the Missing Regular /
+// Missing Full Art filters (set page and image export). The rarity name itself
+// never changes. Rarities without a saved choice follow the built-in list;
+// saved choices live in their own table, so the card sync never overwrites them.
+function RaritiesSection() {
+  const [rows, setRows]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+
+  useEffect(() => {
+    api.admin.rarities.list()
+      .then(setRows)
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const builtIn = rarity => (isCollectorRarity(rarity) ? 'full_art' : 'regular');
+
+  // counts_as null = back to the built-in list
+  async function save(rarity, counts_as) {
+    const before = rows;
+    setError(null);
+    setRows(prev => prev.map(r => (r.rarity === rarity ? { ...r, counts_as } : r)));
+    try {
+      await api.admin.rarities.set(rarity, counts_as);
+    } catch (err) {
+      setRows(before);
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.1rem', marginBottom: 'var(--space-2)', fontFamily: 'var(--font-display)' }}>
+        Rarities
+      </h2>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>
+        Choose whether each rarity counts as Regular or Full Art for the Missing Regular and
+        Missing Full Art filters, on set pages and in image exports. Rarity names stay as they are,
+        and your choices are never overwritten by reimports or price syncs.
+        The 2nd “own a second copy” checkbox isn’t affected.
+      </p>
+
+      {error && (
+        <div style={{ color: 'var(--danger)', marginBottom: 'var(--space-3)', fontSize: '0.875rem' }}>
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ color: 'var(--text-muted)' }}>Loading rarities…</div>
+      ) : (
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+          <div style={{ ...rowStyle, background: 'var(--bg-elevated)', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ flex: 1 }}>Rarity</div>
+            <div style={{ width: 70, textAlign: 'right' }}>Cards</div>
+            <div style={{ width: 130 }}>Counts as</div>
+            <div style={{ width: 170 }} />
+          </div>
+
+          <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+            {rows.map((row, i) => {
+              const value = row.counts_as || builtIn(row.rarity);
+              return (
+                <div
+                  key={row.rarity}
+                  style={{
+                    ...rowStyle,
+                    background: i % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)',
+                    borderTop: '1px solid var(--border)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ flex: 1, fontWeight: 600 }}>{row.rarity}</div>
+                  <div style={{ width: 70, textAlign: 'right', color: 'var(--text-muted)' }}>{row.cards}</div>
+                  <div style={{ width: 130 }}>
+                    <select
+                      className="input"
+                      value={value}
+                      onChange={e => save(row.rarity, e.target.value)}
+                      style={{ padding: '2px 8px', fontSize: '0.85rem', height: 28, width: '100%' }}
+                    >
+                      <option value="regular">Regular</option>
+                      <option value="full_art">Full Art</option>
+                    </select>
+                  </div>
+                  <div style={{ width: 170, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: '0.75rem' }}>
+                    {row.counts_as ? (
+                      <>
+                        <span style={{ color: 'var(--accent)', fontWeight: 700 }}>Your choice</span>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => save(row.rarity, null)}
+                          title={`Back to the built-in setting (${builtIn(row.rarity) === 'regular' ? 'Regular' : 'Full Art'})`}
+                          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+                        >
+                          ↺ Reset
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)' }}>Built-in</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Backup Section ────────────────────────────────────────────────────────────
 function BackupSection() {

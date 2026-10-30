@@ -41,6 +41,7 @@ export default function SetView() {
   const [allSets, setAllSets] = useState([]);
   const [alternateCards, setAlternateCards] = useState([]);
   const [sealedProducts, setSealedProducts] = useState([]);
+  const [rarityRules, setRarityRules] = useState({});
   const [showSetTools, setShowSetTools] = useState(false);
   const [checkingGradedId, setCheckingGradedId] = useState(null);   // "${cardId}-regular" | "${cardId}-reverse"
   const [gradedResultsKey, setGradedResultsKey] = useState(null);   // same composite format
@@ -59,6 +60,7 @@ export default function SetView() {
       setChildSets(data.childSets || []);
       setAlternateCards(data.alternateCards || []);
       setSealedProducts(data.sealedProducts || []);
+      setRarityRules(data.rarityRules || {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -343,7 +345,7 @@ export default function SetView() {
   // ── Filtered card list ────────────────────────────────────────────────────
   const variantType = setData?.variant_type;
   const filteredCards = cards.filter(card =>
-    matchesQuickFilter(card, quickFilter, variantType) && matchesSearch(card, search)
+    matchesQuickFilter(card, quickFilter, variantType, rarityRules) && matchesSearch(card, search)
   );
 
   const sortedCards = sortCards(filteredCards, sortCol, sortDir);
@@ -447,9 +449,9 @@ export default function SetView() {
           { key: 'all',
             label: 'Clear' },
           { key: 'missing_regular',
-            label: `Missing Regular (${cards.filter(c => matchesQuickFilter(c, 'missing_regular', variantType)).length})` },
+            label: `Missing Regular (${cards.filter(c => matchesQuickFilter(c, 'missing_regular', variantType, rarityRules)).length})` },
           { key: 'missing_fullart',
-            label: `Missing Full Art (${cards.filter(c => matchesQuickFilter(c, 'missing_fullart', variantType)).length})` },
+            label: `Missing Full Art (${cards.filter(c => matchesQuickFilter(c, 'missing_fullart', variantType, rarityRules)).length})` },
           { key: 'missing_reverse',
             label: `Missing ${variantType === 'first_edition' ? 'First Edition' : 'Reverse'} (${cards.filter(c => matchesQuickFilter(c, 'missing_reverse', variantType)).length})` },
           { key: 'missing_all',

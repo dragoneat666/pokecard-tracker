@@ -18,6 +18,16 @@ export function isCollectorRarity(rarity) {
   return !BASIC_RARITIES.has(rarity);
 }
 
+// Whether a rarity counts as Regular for the Missing Regular / Missing Full
+// Art filters. rules = the choices saved on the Admin page ({ rarity:
+// 'regular' | 'full_art' }); rarities without one follow the list above.
+// Only the filters use this; the 2nd ownership checkbox stays isCollectorRarity.
+export function countsAsRegular(rarity, rules = {}) {
+  const rule = rarity ? rules[rarity] : null;
+  if (rule) return rule === 'regular';
+  return !isCollectorRarity(rarity);
+}
+
 // Rarities that get a reverse holo version
 const REVERSE_HOLO_RARITIES = new Set([
   'Common',

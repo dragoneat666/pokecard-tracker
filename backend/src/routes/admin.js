@@ -6,6 +6,9 @@
 //   DELETE /api/admin/series-map/:code   — remove an entry
 //   GET    /api/admin/data-sources       — external sites we pull data from, what
 //                                          each provides, and live key/usage status
+//   GET    /api/admin/rarities           — every rarity in the collection, with its
+//                                          card count and any Regular/Full Art choice
+//   PUT    /api/admin/rarities           — save (or clear) one rarity's choice
 
 import { Router } from 'express';
 import { query } from '../db.js';
@@ -157,6 +160,52 @@ router.delete('/series-map/:code', async (req, res, next) => {
     );
     if (rowCount === 0) return res.status(404).json({ error: 'Set code not found' });
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/admin/rarities ─────────────────────────────────────────────────
+// counts_as is null for rarities still on the built-in list (the frontend knows
+// that list). A saved choice for a rarity no card has any more is still listed
+// (with 0 cards) so it can be cleared.
+router.get('/rarities', async (_req, res, next) => {
+  try {
+    const { rows } = await query(`
+      SELECT COALESCE(c.rarity, r.rarity) AS rarity, COALESCE(c.cards, 0) AS cards, r.counts_as
+      FROM (SELECT rarity, COUNT(*)::INT AS cards FROM cards WHERE rarity <> '' GROUP BY rarity) c
+      FULL JOIN rarity_rules r ON r.rarity = c.rarity
+      ORDER BY 1
+    `);
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── PUT /api/admin/rarities ─────────────────────────────────────────────────
+// Body: { rarity, counts_as: 'regular' | 'full_art' | null }. null goes back to
+// the built-in list. The rarity goes in the body because names have spaces.
+router.put('/rarities', async (req, res, next) => {
+  try {
+    const { rarity, counts_as } = req.body;
+    if (typeof rarity !== 'string' || !rarity.trim()) {
+      return res.status(400).json({ error: 'rarity is required' });
+    }
+    if (counts_as === null) {
+      await query('DELETE FROM rarity_rules WHERE rarity = $1', [rarity]);
+      return res.json({ rarity, counts_as: null });
+    }
+    if (!['regular', 'full_art'].includes(counts_as)) {
+      return res.status(400).json({ error: "counts_as must be 'regular', 'full_art' or null" });
+    }
+    const { rows } = await query(
+      `INSERT INTO rarity_rules (rarity, counts_as) VALUES ($1, $2)
+       ON CONFLICT (rarity) DO UPDATE SET counts_as = $2
+       RETURNING rarity, counts_as`,
+      [rarity, counts_as]
+    );
+    res.json(rows[0]);
   } catch (err) {
     next(err);
   }

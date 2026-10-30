@@ -322,6 +322,17 @@ CREATE TABLE coin_varieties (
 );
 
 
+-- ─── RARITY RULES ────────────────────────────────────────────────────────────
+-- Whether a rarity counts as Regular or Full Art for the Missing Regular /
+-- Missing Full Art filters. Only rarities changed on the Admin page get a row
+-- (the rest use the built-in list in frontend/src/rarity.js). Kept apart from
+-- cards so the card sync, which rewrites cards.rarity, never overwrites it.
+CREATE TABLE rarity_rules (
+  rarity     TEXT PRIMARY KEY,
+  counts_as  TEXT NOT NULL CHECK (counts_as IN ('regular', 'full_art'))
+);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits

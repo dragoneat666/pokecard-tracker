@@ -357,12 +357,17 @@ router.get('/:id', async (req, res, next) => {
       }
     }
 
+    // Rarities moved between Regular and Full Art on the Admin page, for the
+    // Missing Regular / Missing Full Art filters: { "Pikachu Rare": "regular" }
+    const { rows: rules } = await query('SELECT rarity, counts_as FROM rarity_rules');
+
     res.json({
       set: setResult.rows[0],
       cards: cardsResult.rows,
       alternateCards: alternateCardsResult.rows,
       sealedProducts: sealedResult.rows,
       childSets,
+      rarityRules: Object.fromEntries(rules.map(r => [r.rarity, r.counts_as])),
     });
   } catch (err) {
     next(err);

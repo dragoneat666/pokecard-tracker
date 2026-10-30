@@ -98,7 +98,7 @@ export default function ExportModal({ set, onClose }) {
   const groups = buildGroups(data);
   const entries = groups.flatMap(group => group.cards.map(card => ({ card, group })));
   const shown = entries.filter(({ card }) =>
-    matchesQuickFilter(card, quickFilter, variantType) && matchesSearch(card, search)
+    matchesQuickFilter(card, quickFilter, variantType, data.rarityRules) && matchesSearch(card, search)
   );
   const showVariant = variantType !== 'none';
   const variantLabel = variantType === 'first_edition' ? '1st Ed' : 'Rev';
@@ -188,7 +188,7 @@ export default function ExportModal({ set, onClose }) {
     }
   }
 
-  const filterCount = key => entries.filter(({ card }) => matchesQuickFilter(card, key, variantType)).length;
+  const filterCount = key => entries.filter(({ card }) => matchesQuickFilter(card, key, variantType, data.rarityRules)).length;
 
   return (
     <Overlay onClose={onClose}>

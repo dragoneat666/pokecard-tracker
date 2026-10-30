@@ -98,6 +98,10 @@ admin: {
     update: (set_code, data)       => request('PATCH',  `/admin/series-map/${set_code}`, data),
     delete: (set_code)             => request('DELETE', `/admin/series-map/${set_code}`),
   },
+  rarities: {
+    list: ()                    => request('GET', '/admin/rarities'),
+    set:  (rarity, counts_as)   => request('PUT', '/admin/rarities', { rarity, counts_as }),
+  },
 },
   // ── Sealed product ────────────────────────────────────────────────────────
   sealed: {
