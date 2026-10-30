@@ -10,7 +10,7 @@
 //   POST   /api/coins/generations/:id/coins — add a coin by hand
 //   POST   /api/coins/import               — start importing a Bulbapedia coin page
 //   GET    /api/coins/import               — progress / result of that
-//   PATCH  /api/coins/:id                  — edit number, name, released in, date, description
+//   PATCH  /api/coins/:id                  — edit number, name, size, released in, date, description
 //   PUT    /api/coins/:id/picture          — set or clear a coin's front / back picture
 //   DELETE /api/coins/:id
 //   POST   /api/coins/:id/varieties        — add a variety
@@ -28,7 +28,7 @@ import { startImportJob, getImportJob } from '../utils/coinImportJob.js';
 
 const COLLECTED_REGION = 'North America';
 const PICTURE_COLUMNS = { front: 'image_url', back: 'back_image_url' };
-const TEXT_FIELDS = { name: 200, released_in: 300, release_date: 60, description: 5000 };   // max lengths
+const TEXT_FIELDS = { name: 200, size: 40, released_in: 300, release_date: 60, description: 5000 };   // max lengths
 
 const router = Router();
 
@@ -97,7 +97,7 @@ router.get('/generations/:id', async (req, res, next) => {
     if (genRows.length === 0) return res.status(404).json({ error: 'Generation not found' });
 
     const { rows: coins } = await query(`
-      SELECT id, region, number, name, released_in, release_date, description, image_url, back_image_url
+      SELECT id, region, number, name, size, released_in, release_date, description, image_url, back_image_url
       FROM coins WHERE generation_id = $1
       ORDER BY (region = $2) DESC, region, number
     `, [id, COLLECTED_REGION]);
@@ -225,7 +225,7 @@ router.delete('/varieties/:id', async (req, res, next) => {
 });
 
 // ─── PATCH /api/coins/:id ────────────────────────────────────────────────────
-// Body: any of { number, name, released_in, release_date, description }.
+// Body: any of { number, name, size, released_in, release_date, description }.
 router.patch('/:id', async (req, res, next) => {
   try {
     const sets = [];
@@ -248,7 +248,7 @@ router.patch('/:id', async (req, res, next) => {
     params.push(req.params.id);
     const { rows } = await query(`
       UPDATE coins SET ${sets.join(', ')} WHERE id = $${params.length}
-      RETURNING id, number, name, released_in, release_date, description
+      RETURNING id, number, name, size, released_in, release_date, description
     `, params);
     if (rows.length === 0) return res.status(404).json({ error: 'Coin not found' });
     res.json(rows[0]);

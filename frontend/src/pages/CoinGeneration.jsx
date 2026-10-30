@@ -1,8 +1,9 @@
 // pages/CoinGeneration.jsx — One generation's coins
 //
 // The North American table is the checklist: the number (what's written on the
-// coin sleeve, in release order), the coin, the product it came in, its release
-// date, and a have / need box per variety. Hover a coin to see its picture and
+// coin sleeve, in release order), the coin, its size (Regular / Large / Jumbo /
+// Metal, read from the description on import), the product it came in, its
+// release date, and a have / need box per variety. Hover a coin to see its picture and
 // Bulbapedia's description. Coins from other regions are listed underneath for
 // reference — collapsed, without boxes, and numbered J1, J2... / K1... so they
 // never look like one of yours.
@@ -143,7 +144,7 @@ export default function CoinGeneration() {
   const filtering = !editMode && (!!q || onlyMissing);
   const keep = c => {
     if (!filtering) return true;
-    if (q && !`${prefixOf(c.region)}${c.number} ${c.name} ${c.released_in} ${c.release_date}`.toLowerCase().includes(q)) return false;
+    if (q && !`${prefixOf(c.region)}${c.number} ${c.name} ${c.size || ''} ${c.released_in} ${c.release_date}`.toLowerCase().includes(q)) return false;
     if (onlyMissing && !c.varieties.some(v => !v.owned)) return false;
     return true;
   };
@@ -199,7 +200,7 @@ export default function CoinGeneration() {
           <button className={`btn btn-sm ${onlyMissing ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setOnlyMissing(o => !o)}>
             Coins I still need
           </button>
-          <input className="input" placeholder="Search number, coin, product or date…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 300 }} />
+          <input className="input" placeholder="Search number, coin, size, product or date…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 300 }} />
           {filtering && (
             <button className="btn btn-sm btn-ghost" onClick={() => { setSearch(''); setOnlyMissing(false); }}>Clear</button>
           )}
@@ -244,7 +245,7 @@ export default function CoinGeneration() {
 function RegionTable({ region, coins, collected = false, filtering, editMode, resetKey, run, onToggle, onPicture, onAdd }) {
   const prefix = prefixOf(region);
   const nextNumber = coins.reduce((n, c) => Math.max(n, c.number), 0) + 1;
-  const columns = editMode ? (collected ? 9 : 8) : (collected ? 5 : 4);
+  const columns = editMode ? (collected ? 10 : 9) : (collected ? 6 : 5);
 
   function confirmDelete(coin) {
     const have = coin.varieties.filter(v => v.owned).length;
@@ -262,6 +263,7 @@ function RegionTable({ region, coins, collected = false, filtering, editMode, re
             <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
               <th style={{ ...thStyle, width: 60 }}>#</th>
               <th style={thStyle}>Coin</th>
+              <th style={thStyle}>Size</th>
               <th style={thStyle}>Released in</th>
               <th style={thStyle}>Date</th>
               {editMode && <th style={thStyle}>Description</th>}
@@ -342,6 +344,10 @@ function CoinRow({ coin, prefix, collected, zebra, editMode, resetKey, run, onTo
               onSave={name => save({ name })} />
           </td>
           <td style={tdStyle}>
+            <EditableText value={coin.size || ''} resetKey={resetKey} style={{ width: 90, fontSize: '0.8rem' }}
+              onSave={size => save({ size })} />
+          </td>
+          <td style={tdStyle}>
             <EditableText value={coin.released_in} resetKey={resetKey} style={{ width: 220, fontSize: '0.8rem' }}
               onSave={released_in => save({ released_in })} />
           </td>
@@ -382,6 +388,7 @@ function CoinRow({ coin, prefix, collected, zebra, editMode, resetKey, run, onTo
               </span>
             </HoverPreview>
           </td>
+          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}><SizeBadge size={coin.size} /></td>
           <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{coin.released_in}</td>
           <td style={{ ...tdStyle, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{coin.release_date}</td>
           {collected && (
@@ -392,6 +399,25 @@ function CoinRow({ coin, prefix, collected, zebra, editMode, resetKey, run, onTo
         </>
       )}
     </tr>
+  );
+}
+
+// A small pill so Large / Jumbo stand out when picking sleeves. Sizes typed by
+// hand that aren't one of these get the plain look.
+const SIZE_COLORS = {
+  Regular: 'var(--text-muted)',
+  Large:   'var(--rarity-rare)',
+  Jumbo:   'var(--rarity-ultra)',
+  Metal:   'var(--rarity-common)',
+};
+
+function SizeBadge({ size }) {
+  if (!size) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+  const color = SIZE_COLORS[size] || 'var(--text-secondary)';
+  return (
+    <span className="rarity-badge" style={{ background: color + '22', color, border: `1px solid ${color}44`, fontWeight: 700 }}>
+      {size}
+    </span>
   );
 }
 

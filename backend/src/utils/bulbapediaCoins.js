@@ -23,6 +23,18 @@ export function coinName(file) {
   return words.join(' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
+// The coin's size, from its description: "Large-sized, Green Mirror Holofoil..."
+// -> "Large" (also "Jumbo sized"); "Metal Coin featuring..." -> "Metal".
+// Descriptions that don't say (mostly older cardboard coins) are Regular.
+// Migration 0.7.23 does the same for coins imported before sizes existed.
+export function coinSize(description) {
+  if (!description) return null;
+  const sized = description.match(/\b([a-z]+)[- ]sized\b/i);
+  if (sized) return sized[1][0].toUpperCase() + sized[1].slice(1).toLowerCase();
+  if (/\bmetal coin\b/i.test(description)) return 'Metal';
+  return 'Regular';
+}
+
 // The original file name behind a picture URL, thumbnail or not:
 // ".../thumb/c/cb/SP_Silver_Chansey_Coin.png/120px-SP_Silver_Chansey_Coin.png" -> "SP_Silver_Chansey_Coin.png"
 function fileOf(url) {
@@ -38,8 +50,8 @@ function fileOf(url) {
 
 const cellText = html => textOf(html.replace(/<br\s*\/?>/gi, ' / '));
 
-// Returns [{ generation, region, releasedIn, releaseDate, description, imageUrl,
-// file, name, key }] in page order. key identifies the entry on later imports:
+// Returns [{ generation, region, releasedIn, releaseDate, description, size,
+// imageUrl, file, name, key }] in page order. key identifies the entry on later imports:
 // boxes that look identical (same region, product, date and picture) get #2, #3.
 export function extractCoins(html) {
   const start = html.search(/class="[^"]*\bmw-parser-output\b/);
@@ -76,6 +88,7 @@ export function extractCoins(html) {
       file,
       name: coinName(file) || 'Coin',
     };
+    coin.size = coinSize(coin.description);
     const base = [coin.region, coin.releasedIn, coin.releaseDate, file].join('|');
     const n = (seen.get(`${generation}|${base}`) || 0) + 1;
     seen.set(`${generation}|${base}`, n);

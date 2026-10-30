@@ -89,12 +89,12 @@ async function runImport(pageUrl, job) {
     for (const e of entries) {
       const generation = byName.get(e.generation);
       const { rows } = await client.query(`
-        INSERT INTO coins (generation_id, region, number, name, released_in, release_date, description, source_key)
-        SELECT $1, $2, COALESCE(MAX(number), 0) + 1, $3, $4, $5, $6, $7
+        INSERT INTO coins (generation_id, region, number, name, released_in, release_date, description, size, source_key)
+        SELECT $1, $2, COALESCE(MAX(number), 0) + 1, $3, $4, $5, $6, $7, $8
         FROM coins WHERE generation_id = $1 AND region = $2
         ON CONFLICT (generation_id, source_key) DO NOTHING
         RETURNING id
-      `, [generation.id, e.region, e.name, e.releasedIn, e.releaseDate, e.description, e.key]);
+      `, [generation.id, e.region, e.name, e.releasedIn, e.releaseDate, e.description, e.size, e.key]);
       if (rows.length === 0) { alreadyHad++; continue; }
       await client.query("INSERT INTO coin_varieties (coin_id, name, sort_order) VALUES ($1, 'Regular', 0)", [rows[0].id]);
       generation.added++;

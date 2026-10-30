@@ -305,6 +305,7 @@ CREATE TABLE coins (
   released_in    TEXT NOT NULL DEFAULT '',   -- the product it came in
   release_date   TEXT NOT NULL DEFAULT '',   -- as written: "January 9, 1999", "Autumn 1999"
   description    TEXT NOT NULL DEFAULT '',
+  size           TEXT,                       -- "Regular", "Large", "Jumbo", "Metal"; read from the description on import, editable
   image_url      TEXT,                       -- front picture (a copy stored on our server)
   back_image_url TEXT,                       -- back picture (a copy stored on our server)
   source_key     TEXT,                       -- which Bulbapedia entry it came from; NULL if added by hand
