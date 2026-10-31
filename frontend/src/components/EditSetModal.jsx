@@ -1,6 +1,7 @@
 // components/EditSetModal.jsx — Edit set metadata
 import { useState, useEffect } from 'react';
 import { api } from '../api.js';
+import UploadPictureButton from './UploadPictureButton.jsx';
 
 const SET_TYPES    = ['Main', 'Special', "McDonald's", 'Promo', 'POP', 'Play! Prize Pack', 'Miscellaneous'];
 const VARIANT_TYPES = [
@@ -205,21 +206,27 @@ export default function EditSetModal({ set, onClose, onSaved }) {
             </label>
           )}
 
-          <label>
+          <div>
             <div style={labelStyle}>Logo URL</div>
-            <input className="input" placeholder="https://..." value={form.logo_url} onChange={e => handleChange('logo_url', e.target.value)} />
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <input className="input" placeholder="https://... or upload a file" value={form.logo_url} onChange={e => handleChange('logo_url', e.target.value)} />
+              <UploadPictureButton onUploaded={url => handleChange('logo_url', url)} onError={setError} />
+            </div>
             {form.logo_url && (
               <img src={form.logo_url} alt="Logo preview" style={{ marginTop: 8, maxHeight: 48, objectFit: 'contain' }} />
             )}
-          </label>
+          </div>
 
-          <label>
+          <div>
             <div style={labelStyle}>Symbol URL</div>
-            <input className="input" placeholder="https://..." value={form.symbol_url} onChange={e => handleChange('symbol_url', e.target.value)} />
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <input className="input" placeholder="https://... or upload a file" value={form.symbol_url} onChange={e => handleChange('symbol_url', e.target.value)} />
+              <UploadPictureButton onUploaded={url => handleChange('symbol_url', url)} onError={setError} />
+            </div>
             {form.symbol_url && (
               <img src={form.symbol_url} alt="Symbol preview" style={{ marginTop: 8, maxHeight: 32, objectFit: 'contain' }} />
             )}
-          </label>
+          </div>
         </div>
 
         {/* Footer */}

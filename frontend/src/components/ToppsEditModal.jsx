@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import { api } from '../api.js';
+import UploadPictureButton from './UploadPictureButton.jsx';
 
 export default function ToppsEditModal({ set, onClose, onSaved }) {
   const [form, setForm] = useState({
@@ -63,13 +64,16 @@ export default function ToppsEditModal({ set, onClose, onSaved }) {
             <input className="input" value={form.name} onChange={e => handleChange('name', e.target.value)} />
           </label>
 
-          <label>
+          <div>
             <div style={labelStyle}>Logo URL</div>
-            <input className="input" placeholder="https://..." value={form.logo_url} onChange={e => handleChange('logo_url', e.target.value)} />
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+              <input className="input" placeholder="https://... or upload a file" value={form.logo_url} onChange={e => handleChange('logo_url', e.target.value)} />
+              <UploadPictureButton onUploaded={url => handleChange('logo_url', url)} onError={setError} />
+            </div>
             {form.logo_url && (
               <img src={form.logo_url} alt="Logo preview" style={{ marginTop: 8, maxHeight: 48, objectFit: 'contain' }} />
             )}
-          </label>
+          </div>
 
           <label>
             <div style={labelStyle}>Release Date</div>

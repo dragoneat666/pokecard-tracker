@@ -35,6 +35,18 @@ async function request(method, path, body) {
   return data;
 }
 
+// Sends a picture file (a scan) as a form, plus any other fields. The browser
+// sets the multipart Content-Type itself, so request() can't be used here.
+async function uploadPicture(path, file, fields = {}) {
+  const formData = new FormData();
+  for (const [name, value] of Object.entries(fields)) formData.append(name, value);
+  formData.append('picture', file);
+  const res = await fetch(`${BASE}${path}`, { method: 'POST', body: formData });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+  return data;
+}
+
 // ── Sets ──────────────────────────────────────────────────────────────────────
 export const api = {
   sets: {
@@ -148,15 +160,7 @@ admin: {
     // side: 'front' | 'back'; an empty url clears the picture
     setPicture:    (cardId, side, url)      => request('PUT',    `/topps/cards/${cardId}/picture`, { side, url }),
     // A picture from a file (a scan) instead of a link.
-    uploadPicture: async (cardId, side, file) => {
-      const formData = new FormData();
-      formData.append('side', side);
-      formData.append('picture', file);
-      const res = await fetch(`${BASE}/topps/cards/${cardId}/picture/upload`, { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
-      return data;
-    },
+    uploadPicture: (cardId, side, file)     => uploadPicture(`/topps/cards/${cardId}/picture/upload`, file, { side }),
     startPictures: (setId, url)             => request('POST',   `/topps/sets/${setId}/pictures`, { url }),
     pictureJob:    (setId)                  => request('GET',    `/topps/sets/${setId}/pictures`),
     // state: 'none' (printing doesn't exist) | 'need' | 'have'
@@ -173,6 +177,7 @@ admin: {
     deleteCoin:       (id)                       => request('DELETE', `/coins/${id}`),
     // side: 'front' | 'back'; an empty url clears the picture
     setPicture:       (id, side, url)            => request('PUT',    `/coins/${id}/picture`, { side, url }),
+    uploadPicture:    (id, side, file)           => uploadPicture(`/coins/${id}/picture/upload`, file, { side }),
     addVariety:       (coinId, name)             => request('POST',   `/coins/${coinId}/varieties`, { name }),
     // data: { name } and / or { owned }
     updateVariety:    (id, data)                 => request('PATCH',  `/coins/varieties/${id}`, data),
@@ -195,5 +200,11 @@ admin: {
     topValuable:        () => request('GET', '/reports/top-valuable'),
     storageAuditSafe:      () => request('GET', '/reports/storage-audit-safe'),
     storageAuditToploader: () => request('GET', '/reports/storage-audit-toploader'),
+  },
+  // ── Uploaded pictures ─────────────────────────────────────────────────────
+  // For picture fields in a form (logos, symbols): stores the file and answers
+  // { url } to put in the field, which the form then saves like a link.
+  uploads: {
+    picture: (file) => uploadPicture('/uploads/picture', file),
   },
 };

@@ -9,7 +9,7 @@
 // never look like one of yours.
 //
 // Edit mode ("Edit coins"): change any field in place, set Front / Back picture
-// URLs (downloaded and stored on our server), add / rename / remove varieties,
+// URLs (downloaded and stored on our server) or upload picture files, add / rename / remove varieties,
 // add coins by hand and delete coins.
 //
 // Have / need toggles and picture changes are optimistic with revert-on-failure,
@@ -96,12 +96,17 @@ export default function CoinGeneration() {
 
   // Optimistic picture change. The server downloads the picture and answers
   // with the URL of its stored copy, which then replaces the typed one.
-  async function changePicture(coin, side, url) {
+  // source is a typed URL or an uploaded File (a scan); a file has no URL to
+  // show early, so it only shows once stored.
+  async function changePicture(coin, side, source) {
     const column = PICTURE_COLUMN[side];
     const prev = coin[column];
-    patchCoin(coin.id, () => ({ [column]: url || null }));
+    const isFile = source instanceof File;
+    if (!isFile) patchCoin(coin.id, () => ({ [column]: source || null }));
     try {
-      const saved = await api.coins.setPicture(coin.id, side, url);
+      const saved = isFile
+        ? await api.coins.uploadPicture(coin.id, side, source)
+        : await api.coins.setPicture(coin.id, side, source);
       patchCoin(coin.id, () => ({ [column]: saved.url }));
     } catch (err) {
       patchCoin(coin.id, () => ({ [column]: prev }));
@@ -359,10 +364,12 @@ function CoinRow({ coin, prefix, collected, zebra, editMode, resetKey, run, onTo
             <EditableArea value={coin.description} resetKey={resetKey} onSave={description => save({ description })} />
           </td>
           <td style={tdStyle}>
-            <PictureField round url={coin.image_url} resetKey={resetKey} placeholder="Front picture URL" onSave={url => onPicture('front', url)} />
+            <PictureField round url={coin.image_url} resetKey={resetKey} placeholder="Front picture URL" onSave={url => onPicture('front', url)}
+              onUpload={file => onPicture('front', file)} />
           </td>
           <td style={tdStyle}>
-            <PictureField round url={coin.back_image_url} resetKey={resetKey} placeholder="Back picture URL" onSave={url => onPicture('back', url)} />
+            <PictureField round url={coin.back_image_url} resetKey={resetKey} placeholder="Back picture URL" onSave={url => onPicture('back', url)}
+              onUpload={file => onPicture('back', file)} />
           </td>
           {collected && (
             <td style={tdStyle}>

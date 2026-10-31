@@ -12,6 +12,7 @@
 //   GET    /api/coins/import               — progress / result of that
 //   PATCH  /api/coins/:id                  — edit number, name, size, released in, date, description
 //   PUT    /api/coins/:id/picture          — set or clear a coin's front / back picture
+//   POST   /api/coins/:id/picture/upload   — set a front / back picture from a file (a scan)
 //   DELETE /api/coins/:id
 //   POST   /api/coins/:id/varieties        — add a variety
 //   PATCH  /api/coins/varieties/:id        — rename a variety, or set have / need
@@ -22,7 +23,8 @@
 
 import { Router } from 'express';
 import { query } from '../db.js';
-import { downloadImageStrict, deleteLocalImages, isLocalImage } from '../utils/imageDownload.js';
+import { downloadImageStrict, deleteLocalImages, isLocalImage, saveUploadedImage } from '../utils/imageDownload.js';
+import { acceptPicture } from '../utils/pictureUpload.js';
 import { checkPageUrl } from '../utils/toppsPictureJob.js';
 import { startImportJob, getImportJob } from '../utils/coinImportJob.js';
 
@@ -281,6 +283,33 @@ router.put('/:id/picture', async (req, res, next) => {
       } catch (err) {
         return res.status(400).json({ error: `Couldn't download that picture: ${err.message}` });
       }
+    }
+    await query(`UPDATE coins SET ${column} = $1 WHERE id = $2`, [local, id]);
+    if (current !== local) deleteLocalImages([current], 'coins');
+    res.json({ id: parseInt(id, 10), side: req.body.side, url: local });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/coins/:id/picture/upload ──────────────────────────────────────
+// Multipart form: side ('front' | 'back') and picture (the file). Same result
+// as PUT .../picture, for pictures you have as a file instead of a link.
+router.post('/:id/picture/upload', acceptPicture, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const column = PICTURE_COLUMNS[req.body.side];
+    if (!column) return res.status(400).json({ error: "side must be 'front' or 'back'" });
+
+    const { rows } = await query(`SELECT ${column} AS current FROM coins WHERE id = $1`, [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Coin not found' });
+    const { current } = rows[0];
+
+    let local;
+    try {
+      local = saveUploadedImage(req.file.buffer, 'coins', `${id}-${req.body.side}`);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
     await query(`UPDATE coins SET ${column} = $1 WHERE id = $2`, [local, id]);
     if (current !== local) deleteLocalImages([current], 'coins');
