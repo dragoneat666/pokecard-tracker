@@ -57,7 +57,7 @@ export default function ToppsSet() {
   // Which tab this checklist belongs to (Topps / Burger King): the checklist
   // says, or, before it has loaded, the address does.
   const { pathname } = useLocation();
-  const tab = kindOf(data?.set.kind ?? (pathname.startsWith(CHECKLIST_KINDS.burger_king.path) ? 'burger_king' : 'topps'));
+  const tab = kindOf(data?.set.kind ?? Object.keys(CHECKLIST_KINDS).find(k => pathname.startsWith(`${CHECKLIST_KINDS[k].path}/`)));
 
   const load = useCallback(async () => {
     try {
@@ -121,12 +121,17 @@ export default function ToppsSet() {
 
   // Optimistic picture change. The server downloads the picture and answers
   // with the URL of its stored copy, which then replaces the typed one.
-  async function changePicture(card, side, url) {
+  // source is a typed URL or an uploaded File (a scan); a file has no URL to
+  // show early, so it only shows once stored.
+  async function changePicture(card, side, source) {
     const column = PICTURE_COLUMN[side];
     const prev = card[column];
-    patchCard(card.id, { [column]: url || null });
+    const isFile = source instanceof File;
+    if (!isFile) patchCard(card.id, { [column]: source || null });
     try {
-      const saved = await api.topps.setPicture(card.id, side, url);
+      const saved = isFile
+        ? await api.topps.uploadPicture(card.id, side, source)
+        : await api.topps.setPicture(card.id, side, source);
       patchCard(card.id, { [column]: saved.url });
     } catch (err) {
       patchCard(card.id, { [column]: prev });
@@ -482,10 +487,12 @@ function Row({ card, variants, zebra, editMode, onCellClick, onPicture, onEditCa
               onSave={name => onEditCard(card.number, name)} />
           </td>
           <td style={tdStyle}>
-            <PictureField url={card.image_url} resetKey={resetKey} placeholder="Front picture URL" onSave={url => onPicture('front', url)} />
+            <PictureField url={card.image_url} resetKey={resetKey} placeholder="Front picture URL" onSave={url => onPicture('front', url)}
+              onUpload={file => onPicture('front', file)} />
           </td>
           <td style={tdStyle}>
-            <PictureField url={card.back_image_url} resetKey={resetKey} placeholder="Back picture URL" onSave={url => onPicture('back', url)} />
+            <PictureField url={card.back_image_url} resetKey={resetKey} placeholder="Back picture URL" onSave={url => onPicture('back', url)}
+              onUpload={file => onPicture('back', file)} />
           </td>
         </>
       ) : (

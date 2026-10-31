@@ -129,7 +129,7 @@ admin: {
   },
   // ── Topps checklists ──────────────────────────────────────────────────────
   topps: {
-    // kind: 'topps' | 'burger_king' — which tab the checklists belong to
+    // kind: 'topps' | 'burger_king' | 'mini_tin' — which tab the checklists belong to
     sets:          (kind = 'topps')         => request('GET',    `/topps/sets?kind=${kind}`),
     set:           (id)                     => request('GET',    `/topps/sets/${id}`),
     createSet:     (name, kind = 'topps')   => request('POST',   '/topps/sets', { name, kind }),
@@ -147,6 +147,16 @@ admin: {
     pasteRows:     (tableId, text)          => request('POST',   `/topps/tables/${tableId}/paste`, { text }),
     // side: 'front' | 'back'; an empty url clears the picture
     setPicture:    (cardId, side, url)      => request('PUT',    `/topps/cards/${cardId}/picture`, { side, url }),
+    // A picture from a file (a scan) instead of a link.
+    uploadPicture: async (cardId, side, file) => {
+      const formData = new FormData();
+      formData.append('side', side);
+      formData.append('picture', file);
+      const res = await fetch(`${BASE}/topps/cards/${cardId}/picture/upload`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      return data;
+    },
     startPictures: (setId, url)             => request('POST',   `/topps/sets/${setId}/pictures`, { url }),
     pictureJob:    (setId)                  => request('GET',    `/topps/sets/${setId}/pictures`),
     // state: 'none' (printing doesn't exist) | 'need' | 'have'

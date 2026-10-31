@@ -1,6 +1,6 @@
 // checklistKinds.js — The tabs that use the hand-built checklist engine
 //
-// Topps and Burger King cards are both checklists of tables edited like a
+// Topps, Burger King cards and mini tin art cards are all checklists of tables edited like a
 // sheet (pages/Topps.jsx and pages/ToppsSet.jsx); each checklist has a kind
 // saying which tab it belongs to. This is what differs between the tabs.
 
@@ -20,6 +20,14 @@ export const CHECKLIST_KINDS = {
     blurb: 'what you have and need of the Burger King Pokémon cards',
     example: 'Burger King PokéTrivia Cards',
     bulbapediaPictures: false,     // its Bulbapedia page reuses numbers across tables, so matching can't work
+  },
+  mini_tin: {
+    title: 'Mini Tin Art',
+    path: '/mini-tins',
+    badge: 'MINI TINS',
+    blurb: 'the art cards from the mini tins that line up into one big picture',
+    example: 'Scarlet & Violet 151 Mini Tins',
+    bulbapediaPictures: false,     // no Bulbapedia list to match against; pictures are pasted or uploaded
   },
 };
 

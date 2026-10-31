@@ -2,8 +2,9 @@
 // Topps checklists — old Topps Pokemon cards tracked by hand (no price data),
 // edited like a spreadsheet. A checklist holds tables; a table has named
 // columns (printings) and rows (cards); each cell is have / need / doesn't exist.
-// The same engine backs the Burger King Cards tab: each checklist has a kind
-// ('topps' or 'burger_king') saying which tab lists it.
+// The same engine backs the Burger King Cards and Mini Tin Art tabs: each
+// checklist has a kind ('topps', 'burger_king' or 'mini_tin') saying which tab
+// lists it.
 //
 //   GET    /api/topps/sets?kind=…           — checklists of one kind (default topps) with progress
 //   POST   /api/topps/sets                  — new checklist (with one starter table)
@@ -22,6 +23,7 @@
 //   POST   /api/topps/tables/:id/paste      — add many rows (and columns) from pasted Excel cells
 //   PATCH  /api/topps/cards/:id             — edit a row's number / name
 //   PUT    /api/topps/cards/:id/picture     — set or clear a card's front / back picture
+//   POST   /api/topps/cards/:id/picture/upload — set a front / back picture from a file (a scan)
 //   DELETE /api/topps/cards/:id
 //   PUT    /api/topps/cells                 — set one cell: none | need | have
 //
@@ -32,13 +34,23 @@
 // hotlinks; deleting a card, table or checklist deletes its copies too.
 
 import { Router } from 'express';
+import multer from 'multer';
 import pool, { query } from '../db.js';
-import { downloadAndLocalizeImage, downloadImageStrict, deleteLocalImages, isLocalImage } from '../utils/imageDownload.js';
+import {
+  downloadAndLocalizeImage, downloadImageStrict, deleteLocalImages, isLocalImage, saveUploadedImage, MAX_UPLOAD_BYTES,
+} from '../utils/imageDownload.js';
 import { parsePasted, applyPaste, PasteError } from '../utils/toppsPaste.js';
 import { checkPageUrl, startPictureJob, getPictureJob } from '../utils/toppsPictureJob.js';
 
 const PICTURE_COLUMNS = { front: 'image_url', back: 'back_image_url' };
-const KINDS = ['topps', 'burger_king'];
+const KINDS = ['topps', 'burger_king', 'mini_tin'];
+
+// One picture per upload, kept in memory (it's checked and written to the logos
+// folder right away). A file over the limit is refused before it's all read.
+const pictureUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: MAX_UPLOAD_BYTES },
+}).single('picture');
 
 // The stored picture URLs of every card matching a WHERE clause on c / t.
 async function pictureUrls(where, params) {
@@ -458,6 +470,40 @@ router.put('/cards/:id/picture', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ─── POST /api/topps/cards/:id/picture/upload ─────────────────────────────────
+// Multipart form: side ('front' | 'back') and picture (the file). Same result
+// as PUT .../picture, for pictures you have as a file instead of a link.
+router.post('/cards/:id/picture/upload', (req, res, next) => {
+  pictureUpload(req, res, async uploadErr => {
+    try {
+      if (uploadErr) {
+        const tooBig = uploadErr.code === 'LIMIT_FILE_SIZE';
+        return res.status(400).json({ error: tooBig ? 'That picture is bigger than 10 MB' : `Upload failed: ${uploadErr.message}` });
+      }
+      const { id } = req.params;
+      const column = PICTURE_COLUMNS[req.body.side];
+      if (!column) return res.status(400).json({ error: "side must be 'front' or 'back'" });
+      if (!req.file) return res.status(400).json({ error: 'No picture was sent' });
+
+      const { rows } = await query(`SELECT ${column} AS current FROM topps_cards WHERE id = $1`, [id]);
+      if (rows.length === 0) return res.status(404).json({ error: 'Card not found' });
+      const { current } = rows[0];
+
+      let local;
+      try {
+        local = saveUploadedImage(req.file.buffer, 'topps', `${id}-${req.body.side}`);
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      await query(`UPDATE topps_cards SET ${column} = $1 WHERE id = $2`, [local, id]);
+      if (current !== local) deleteLocalImages([current], 'topps');
+      res.json({ id: parseInt(id, 10), side: req.body.side, url: local });
+    } catch (err) {
+      next(err);
+    }
+  });
 });
 
 // ─── DELETE /api/topps/cards/:id ──────────────────────────────────────────────

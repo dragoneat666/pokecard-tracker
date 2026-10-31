@@ -6,8 +6,8 @@
 // release date, counts, progress), with Edit for the name / logo / release
 // date, and "New checklist" to start a blank one.
 //
-// The Burger King Cards tab is this same page for checklists of kind
-// 'burger_king' (see checklistKinds.js).
+// The Burger King Cards and Mini Tin Art tabs are this same page for
+// checklists of kind 'burger_king' / 'mini_tin' (see checklistKinds.js).
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';

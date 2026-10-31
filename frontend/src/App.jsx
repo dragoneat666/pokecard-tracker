@@ -42,6 +42,7 @@ function Layout() {
         <NavLink to="/"       style={navStyle} end>Collection</NavLink>
         <NavLink to="/topps" style={navStyle}>Topps</NavLink>
         <NavLink to="/burger-king" style={navStyle}>Burger King Cards</NavLink>
+        <NavLink to="/mini-tins" style={navStyle}>Mini Tin Art</NavLink>
         <NavLink to="/coins" style={navStyle}>Coins</NavLink>
         <NavLink to="/reports" style={navStyle}>Reports</NavLink>
         <NavLink to="/bulk" style={navStyle}>Bulk</NavLink>
@@ -59,6 +60,8 @@ function Layout() {
           <Route path="/topps/:id" element={<ToppsSet />} />
           <Route path="/burger-king"     element={<Topps key="burger_king" kind="burger_king" />} />
           <Route path="/burger-king/:id" element={<ToppsSet />} />
+          <Route path="/mini-tins"       element={<Topps key="mini_tin" kind="mini_tin" />} />
+          <Route path="/mini-tins/:id"   element={<ToppsSet />} />
           <Route path="/coins"    element={<Coins />} />
           <Route path="/coins/:id" element={<CoinGeneration />} />
           <Route path="/reports"  element={<Reports />} />

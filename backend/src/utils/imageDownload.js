@@ -6,7 +6,8 @@
 //
 // downloadAndLocalizeImage (logos) falls back to the remote URL if the
 // download fails. downloadImageStrict (Topps card pictures) throws instead, so
-// the caller can report the failure.
+// the caller can report the failure. saveUploadedImage stores a picture sent
+// from the browser (a scan) the same way.
 
 import fs from 'fs';
 import path from 'path';
@@ -108,14 +109,42 @@ export async function downloadImageStrict(remoteUrl, subdir, baseName, { allowHo
     if (size > MAX_BYTES) throw new DownloadError('That picture is bigger than 5 MB');
     chunks.push(chunk);
   }
-  const buffer = Buffer.concat(chunks);
+  return saveImage(Buffer.concat(chunks), ext, subdir, baseName);
+}
 
+// Writes a picture into LOGOS_DIR/<subdir>/ as "<baseName>-<hash><ext>" and
+// returns its local URL. Shared by downloads and uploads.
+function saveImage(buffer, ext, subdir, baseName) {
   const hash = crypto.createHash('sha1').update(buffer).digest('hex').slice(0, 8);
   const filename = `${baseName}-${hash}${ext}`;
   const dir = path.join(LOGOS_DIR, subdir);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, filename), buffer);
   return `${BASE_URL}/logos/${subdir}/${filename}`;
+}
+
+// ─── Uploaded pictures (scans) ────────────────────────────────────────────────
+
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+// The picture type from the file's first bytes — not from its name or the
+// browser's say-so, so only real JPEG / PNG / GIF / WebP files get stored.
+function sniffImageExt(buffer) {
+  if (buffer.length < 12) return null;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return '.jpg';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return '.png';
+  if (buffer.subarray(0, 4).toString('latin1') === 'GIF8') return '.gif';
+  if (buffer.subarray(0, 4).toString('latin1') === 'RIFF' && buffer.subarray(8, 12).toString('latin1') === 'WEBP') return '.webp';
+  return null;
+}
+
+// Stores an uploaded picture the same way as a downloaded one, or throws a
+// DownloadError saying why not.
+export function saveUploadedImage(buffer, subdir, baseName) {
+  const ext = sniffImageExt(buffer);
+  if (!ext) throw new DownloadError('That file isn\'t a JPEG, PNG, GIF or WebP picture');
+  if (buffer.length > MAX_UPLOAD_BYTES) throw new DownloadError('That picture is bigger than 10 MB');
+  return saveImage(buffer, ext, subdir, baseName);
 }
 
 // Deletes stored copies under LOGOS_DIR/<subdir>/ for the given URLs. Anything
