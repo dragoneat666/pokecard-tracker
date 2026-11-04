@@ -64,6 +64,12 @@ CREATE TABLE cards (
   image_url     TEXT,
   tcgtracking_id INTEGER,
   stage            TEXT,
+  -- Who drew the card, for the Card Browser. From TCGdex, or TCGTracking's
+  -- "Artist" when TCGdex has none (backend/src/utils/cardDetails.js).
+  -- illustrator_source: 'tcgdex' | 'tcgtracking' — a TCGdex name is never
+  -- overwritten by TCGTracking.
+  illustrator        TEXT,
+  illustrator_source TEXT,
 
   condition     TEXT NOT NULL DEFAULT 'Near Mint'
                 CHECK (condition IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')),
@@ -101,6 +107,9 @@ CREATE INDEX idx_cards_number_numeric ON cards (
 );
 
 CREATE UNIQUE INDEX idx_cards_tcgtracking_id ON cards(tcgtracking_id) WHERE tcgtracking_id IS NOT NULL;
+
+-- Card Browser's Illustrator filter
+CREATE INDEX idx_cards_illustrator ON cards(illustrator);
 
 -- ─── REVERSE HOLOS ───────────────────────────────────────────────────────────
 -- Reverse holo is a parallel version of most cards in a set.

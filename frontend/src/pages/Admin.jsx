@@ -1,4 +1,5 @@
-// pages/Admin.jsx — Admin tools: Collection Import/Export + Series Map editor + Rarities + Backup/Restore
+// pages/Admin.jsx — Admin tools: Collection Import/Export + Series Map editor + Rarities +
+// Illustrators fill-in + Backup/Restore
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api.js';
 import { APP_VERSION } from '../version.js';
@@ -19,6 +20,9 @@ export default function Admin() {
       </div>
       <div style={{ marginTop: 'var(--space-7)' }}>
         <RaritiesSection />
+      </div>
+      <div style={{ marginTop: 'var(--space-7)' }}>
+        <IllustratorsSection />
       </div>
       <div style={{ marginTop: 'var(--space-7)' }}>
         <BackupSection />
@@ -608,6 +612,114 @@ const rowStyle = {
   padding: '6px var(--space-4)',
   gap: 'var(--space-3)',
 };
+
+// ── Illustrators ──────────────────────────────────────────────────────────────
+// One button that fills in illustrators (for the Card Browser) for the sets
+// imported before they were saved. Runs in the background on the server; this
+// polls its progress. New imports get illustrators on their own.
+const ILLUSTRATOR_POLL_MS = 2000;
+
+function IllustratorsSection() {
+  const [job, setJob]       = useState(null);
+  const [error, setError]   = useState(null);
+  const [starting, setStarting] = useState(false);
+  const running = job?.status === 'running';
+
+  useEffect(() => {
+    api.admin.illustrators.job().then(setJob).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(() => {
+      api.admin.illustrators.job().then(setJob).catch(() => {});   // a missed poll is fine
+    }, ILLUSTRATOR_POLL_MS);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  async function start() {
+    setError(null);
+    setStarting(true);
+    try {
+      setJob(await api.admin.illustrators.start());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  const report = job?.report;
+  const done = job && !running && report;
+
+  return (
+    <div>
+      <h2 style={{ fontSize: '1.1rem', marginBottom: 'var(--space-2)', fontFamily: 'var(--font-display)' }}>
+        Illustrators
+      </h2>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-4)' }}>
+        Saves who drew each card, for the Card Browser’s Illustrator filter. It comes from TCGdex, and TCGTracking
+        fills in cards TCGdex has no illustrator for. New set imports do this on their own — run this once for the
+        sets you already have. It reads each set with a short pause in between, so it takes several minutes. It also
+        fills in card types and stages that are blank (never ones you set by hand). Nothing else changes, and running
+        it again only changes cards where a source has something new.
+      </p>
+
+      <div className="panel" style={{ padding: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <button className="btn btn-primary btn-sm" onClick={start} disabled={running || starting}>
+            {running ? 'Working…' : 'Fill in illustrators'}
+          </button>
+          {running && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <span className="spinner" />
+              Set {Math.min(job.done + 1, job.total || 1)} of {job.total || '…'}{job.current ? ` — ${job.current}` : ''}
+            </span>
+          )}
+        </div>
+
+        {error && <div style={{ marginTop: 'var(--space-3)', color: 'var(--danger)', fontSize: '0.85rem' }}>{error}</div>}
+        {job?.status === 'failed' && (
+          <div style={{ marginTop: 'var(--space-3)', color: 'var(--danger)', fontSize: '0.85rem' }}>Stopped: {job.error}</div>
+        )}
+
+        {done && (
+          <div style={{ marginTop: 'var(--space-3)', fontSize: '0.85rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div>
+              <strong>{report.withIllustrator.toLocaleString()} of {report.cards.toLocaleString()} cards</strong> now have an illustrator
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {' '}({report.fromTcgdexNow.toLocaleString()} from TCGdex, {(report.withIllustrator - report.fromTcgdexNow).toLocaleString()} from TCGTracking)
+              </span>
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>
+              This run: {report.fromTcgdex.toLocaleString()} filled in from TCGdex
+              {report.tcgdexCorrected > 0 && `, ${report.tcgdexCorrected.toLocaleString()} of TCGTracking’s names corrected by TCGdex`}
+              {report.fromTcgtracking > 0 && `, ${report.fromTcgtracking.toLocaleString()} saved from TCGTracking`}
+              {(report.typesFilled > 0 || report.stagesFilled > 0) &&
+                `, ${report.typesFilled.toLocaleString()} blank card types and ${report.stagesFilled.toLocaleString()} stages filled`}.
+            </div>
+            {report.mostMissing.length > 0 && (
+              <div style={{ color: 'var(--text-secondary)' }}>
+                Most still missing (not counting Energy):{' '}
+                <span style={{ color: 'var(--text-primary)' }}>{report.mostMissing.map(m => `${m.set} (${m.missing})`).join(', ')}</span>
+              </div>
+            )}
+            {report.noTcgdexMatch.length > 0 && (
+              <div style={{ color: 'var(--text-secondary)' }}>
+                Not found on TCGdex (TCGTracking’s names used): <span style={{ color: 'var(--text-primary)' }}>{report.noTcgdexMatch.join(', ')}</span>
+              </div>
+            )}
+            {report.failed.length > 0 && (
+              <div style={{ color: 'var(--danger)' }}>
+                Failed: <span style={{ color: 'var(--text-primary)' }}>{report.failed.map(f => `${f.set} — ${f.error}`).join('; ')}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── Rarities ──────────────────────────────────────────────────────────────────
 // Whether each rarity counts as Regular or Full Art for the Missing Regular /

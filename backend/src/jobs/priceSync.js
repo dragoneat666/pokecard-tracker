@@ -1,8 +1,10 @@
 // jobs/priceSync.js
 //
 // Hybrid import using two APIs:
-//   1. TCGTracking (primary)  — card list, has_reverse_holo, image_url, prices, symbol_url
+//   1. TCGTracking (primary)  — card list, has_reverse_holo, image_url, prices, symbol_url,
+//                               type / stage when PokéWallet has none, illustrator when TCGdex has none
 //   2. PokéWallet  (secondary) — pokemon_type, stage, tcg_card_id, set metadata
+// plus TCGdex for illustrators — its name wins over TCGTracking's (utils/cardDetails.js).
 //
 // Import flow (per set):
 //   Step 1: TCGTracking search  — find set ID and symbol URL
@@ -20,9 +22,10 @@ import cron from 'node-cron';
 import { query } from '../db.js';
 import { downloadAndLocalizeImage } from '../utils/imageDownload.js';
 import { getGradedPricesByTcgPlayerId } from '../utils/gradedPricing.js';
+import { tcgtrackingFetch } from '../utils/tcgtracking.js';
+import { readCardDetails, applyTcgdexIllustrators } from '../utils/cardDetails.js';
 
 const POKEWALLET_BASE  = 'https://api.pokewallet.io';
-const TCGTRACKING_BASE = 'https://tcgtracking.com/tcgapi/v1/3';
 const API_KEY = process.env.TCG_API_KEY;
 
 // ─── POKEWALLET FETCH ─────────────────────────────────────────────────────────
@@ -46,22 +49,6 @@ async function pokewalletFetch(path) {
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`PokéWallet API error ${response.status}: ${body}`);
-  }
-  return response.json();
-}
-
-// ─── TCGTRACKING FETCH ────────────────────────────────────────────────────────
-async function tcgtrackingFetch(path) {
-  const url = `${TCGTRACKING_BASE}${path}`;
-  console.log(`🔍 TCGTracking API: GET ${path}`);
-
-  const response = await fetch(url, {
-    headers: { 'Accept': 'application/json' },
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`TCGTracking API error ${response.status}: ${body}`);
   }
   return response.json();
 }
@@ -276,12 +263,18 @@ export async function importSetCards(tcgSetId) {
     const hasFirstEdition = tcgCard.cardtrader?.[0]?.properties
       ?.some(p => p.name === 'first_edition') ?? null;
 
+    // Illustrator, plus type / stage when PokéWallet has none (utils/cardDetails.js).
+    // A reimport never replaces an illustrator from TCGdex (Step 5 refreshes
+    // those), and keeps the old one when TCGTracking has none.
+    const details = readCardDetails(tcgCard);
+
     await query(`
       INSERT INTO cards (
         set_id, tcgtracking_id, card_number, name,
-        pokemon_type, rarity, has_reverse_holo, has_first_edition, image_url, stage
+        pokemon_type, rarity, has_reverse_holo, has_first_edition, image_url, stage,
+        illustrator, illustrator_source
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (tcgtracking_id) WHERE tcgtracking_id IS NOT NULL DO UPDATE SET
         card_number      = EXCLUDED.card_number,
         name             = EXCLUDED.name,
@@ -291,25 +284,38 @@ export async function importSetCards(tcgSetId) {
         has_first_edition = EXCLUDED.has_first_edition,
         image_url        = EXCLUDED.image_url,
         stage            = EXCLUDED.stage,
+        illustrator      = CASE WHEN cards.illustrator_source = 'tcgdex' OR EXCLUDED.illustrator IS NULL
+                                THEN cards.illustrator ELSE EXCLUDED.illustrator END,
+        illustrator_source = CASE WHEN cards.illustrator_source = 'tcgdex' OR EXCLUDED.illustrator IS NULL
+                                THEN cards.illustrator_source ELSE EXCLUDED.illustrator_source END,
         tcgtracking_id   = EXCLUDED.tcgtracking_id
     `, [
       set.id,
       tcgCard.id,
       tcgCard.number,
       cardName,
-      pokeCard.pokemon_type || null,
+      pokeCard.pokemon_type || details.cardType || null,
       tcgCard.rarity || null,
       hasReverseHolo,
       hasFirstEdition,
       tcgCard.image_url || null,
-      pokeCard.stage || null,
+      pokeCard.stage || details.stage || null,
+      details.illustrator,
+      details.illustrator ? 'tcgtracking' : null,
     ]);
     inserted++;
   }
 
   console.log(`   ✅ Inserted/updated ${inserted} cards (${skipped} skipped) for ${set.name}`);
 
-  // ── Step 5: Kick off price refresh ────────────────────────────────────────
+  // ── Step 5: Illustrators from TCGdex (they win over TCGTracking's) ────────
+  // In the background like the price refresh; a failure only leaves
+  // TCGTracking's names (or blanks) until the next reimport / fill-in.
+  applyTcgdexIllustrators(set.id).catch(err => {
+    console.error(`TCGdex illustrators failed for ${set.name} (non-fatal):`, err.message);
+  });
+
+  // ── Step 6: Kick off price refresh ────────────────────────────────────────
   refreshPricesForSet(set.id).catch(err => {
     console.error(`Initial price fetch failed for ${set.name}:`, err.message);
   });

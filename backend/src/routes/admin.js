@@ -9,10 +9,13 @@
 //   GET    /api/admin/rarities           — every rarity in the collection, with its
 //                                          card count and any Regular/Full Art choice
 //   PUT    /api/admin/rarities           — save (or clear) one rarity's choice
+//   POST   /api/admin/illustrators       — start filling in illustrators for every set
+//   GET    /api/admin/illustrators       — progress / result of that
 
 import { Router } from 'express';
 import { query } from '../db.js';
 import { getApiUsageToday } from '../utils/rateLimiter.js';
+import { startIllustratorJob, getIllustratorJob } from '../utils/illustratorJob.js';
 
 const router = Router();
 
@@ -36,8 +39,9 @@ router.get('/data-sources', async (_req, res, next) => {
           'Sealed product for each set (boxes, ETBs, blisters) with prices',
           'Set symbol images',
           'Card pictures (from cdn.tcgtracking.com), shown in the app and in image exports',
+          'Each card’s card type and stage when PokéWallet has none, and its illustrator when TCGdex has none (from the same card list)',
         ],
-        usedBy: 'Add Set, Reimport, Refresh Prices, nightly price sync, sealed products, card pictures',
+        usedBy: 'Add Set, Reimport, Refresh Prices, nightly price sync, sealed products, card pictures, Card Browser',
       },
       {
         name: 'PokéWallet',
@@ -52,6 +56,17 @@ router.get('/data-sources', async (_req, res, next) => {
         ],
         usedBy: 'Set import and reimport only (a failure here doesn’t stop an import — types are just left blank)',
         limit: '1,000 requests per day on the free plan',
+      },
+      {
+        name: 'TCGdex',
+        site: 'api.tcgdex.net',
+        auth: 'none',
+        role: 'Illustrators — main source',
+        pulls: [
+          'Illustrator names for each card. These win over TCGTracking’s (TCGplayer’s have typos and some sets off by one card); TCGTracking’s are used where TCGdex has none',
+          'Its set list, to find the same set there (matched by name / release date, then checked card by card)',
+        ],
+        usedBy: 'Set import and reimport, and Admin → Fill in illustrators',
       },
       {
         name: 'pokemon-api.com (via RapidAPI)',
@@ -209,6 +224,20 @@ router.put('/rarities', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ─── POST /api/admin/illustrators ────────────────────────────────────────────
+// Starts the background fill-in (utils/illustratorJob.js); poll GET for progress.
+router.post('/illustrators', (_req, res) => {
+  const job = startIllustratorJob();
+  if (!job) return res.status(409).json({ error: 'It is already running' });
+  res.status(202).json(job);
+});
+
+// ─── GET /api/admin/illustrators ─────────────────────────────────────────────
+// The latest run (since the backend started), or null.
+router.get('/illustrators', (_req, res) => {
+  res.json(getIllustratorJob());
 });
 
 export default router;

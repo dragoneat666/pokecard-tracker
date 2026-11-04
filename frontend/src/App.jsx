@@ -9,6 +9,7 @@ import Topps     from './pages/Topps.jsx';
 import ToppsSet  from './pages/ToppsSet.jsx';
 import Coins     from './pages/Coins.jsx';
 import CoinGeneration from './pages/CoinGeneration.jsx';
+import CardBrowser from './pages/CardBrowser.jsx';
 
 function Layout() {
   const location = useLocation();
@@ -44,6 +45,7 @@ function Layout() {
         <NavLink to="/burger-king" style={navStyle}>Burger King Cards</NavLink>
         <NavLink to="/mini-tins" style={navStyle}>Mini Tin Art</NavLink>
         <NavLink to="/coins" style={navStyle}>Coins</NavLink>
+        <NavLink to="/card-browser" style={navStyle}>Card Browser</NavLink>
         <NavLink to="/reports" style={navStyle}>Reports</NavLink>
         <NavLink to="/bulk" style={navStyle}>Bulk</NavLink>
         <NavLink to="/admin" style={navStyle}>Admin</NavLink>
@@ -64,6 +66,7 @@ function Layout() {
           <Route path="/mini-tins/:id"   element={<ToppsSet />} />
           <Route path="/coins"    element={<Coins />} />
           <Route path="/coins/:id" element={<CoinGeneration />} />
+          <Route path="/card-browser" element={<CardBrowser />} />
           <Route path="/reports"  element={<Reports />} />
           <Route path="/bulk"     element={<Bulk />} />
           <Route path="/exports"  element={<Exports />} />

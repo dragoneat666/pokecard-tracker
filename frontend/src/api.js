@@ -114,7 +114,18 @@ admin: {
     list: ()                    => request('GET', '/admin/rarities'),
     set:  (rarity, counts_as)   => request('PUT', '/admin/rarities', { rarity, counts_as }),
   },
+  // Fill in illustrators for every set (background job — poll job() for progress)
+  illustrators: {
+    start: () => request('POST', '/admin/illustrators'),
+    job:   () => request('GET',  '/admin/illustrators'),
+  },
 },
+  // ── Card Browser ──────────────────────────────────────────────────────────
+  browse: {
+    // filters: any of { pokemon, illustrator, set, rarity, type, kind, page }
+    cards:   (filters = {}) => request('GET', `/browse?${new URLSearchParams(filters)}`),
+    options: ()             => request('GET', '/browse/options'),
+  },
   // ── Sealed product ────────────────────────────────────────────────────────
   sealed: {
     setOwned: (id, owned) => request('PATCH', `/sealed/${id}/owned`, { owned }),
