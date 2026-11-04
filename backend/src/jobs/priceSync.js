@@ -369,9 +369,11 @@ export async function refreshPricesForSet(setId) {
     WHERE set_id = $1 AND tcgtracking_id IS NOT NULL
   `, [setId]);
 
+  // A set can hold only sealed product (My First Battle: TCGplayer lists its
+  // cards without numbers, so none are imported) — still fetch the pricing
+  // so the sealed sync below runs.
   if (cards.length === 0) {
-    console.log(`   No TCGTracking-linked cards found for set ${setId}, skipping`);
-    return;
+    console.log(`   No TCGTracking-linked cards in set ${setId} — syncing sealed product only`);
   }
 
   // Fetch all prices for the set in one call
