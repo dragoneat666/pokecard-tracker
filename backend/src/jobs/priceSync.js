@@ -17,6 +17,7 @@
 //
 // Price refresh flow (per set, 1 API call):
 //   TCGTracking /sets/{id}/pricing — returns all prices keyed by TCGTracking product ID
+//   (also fills a blank has_reverse_holo when a card has a Reverse Holofoil price)
 
 import cron from 'node-cron';
 import { query } from '../db.js';
@@ -419,6 +420,27 @@ export async function refreshPricesForSet(setId) {
   }
 
   console.log(`   ✅ Updated prices for ${updated}/${cards.length} cards in ${setName}`);
+
+  // Reverse holo flag from the prices, for cards CardTrader says nothing about.
+  // CardTrader (in the card list) is where has_reverse_holo normally comes from,
+  // but it lists a brand-new set late (Delta Reign: 13 of 162 products in its
+  // first days), so every card was left blank and showed no Reverse Holo
+  // checkbox. A TCGplayer "Reverse Holofoil" price means the card has one (on
+  // Destined Rivals the two agree card for card). Only blanks are filled — a yes
+  // or no from CardTrader is never changed. 1st edition sets show a 1st Edition
+  // checkbox instead (has_first_edition), so they're left out.
+  if (variant_type !== 'first_edition') {
+    const reverseIds = cards
+      .filter(card => prices[String(card.tcgtracking_id)]?.tcg?.['Reverse Holofoil'])
+      .map(card => card.id);
+    if (reverseIds.length > 0) {
+      const { rowCount } = await query(`
+        UPDATE cards SET has_reverse_holo = true
+        WHERE id = ANY($1::int[]) AND has_reverse_holo IS NULL
+      `, [reverseIds]);
+      if (rowCount > 0) console.log(`   🔁 Marked ${rowCount} cards as having a reverse holo (from their TCGplayer price)`);
+    }
+  }
 
   // Sealed product rides along on the same pricing response. Non-fatal so a
   // sealed hiccup never blocks the graded pass below.
