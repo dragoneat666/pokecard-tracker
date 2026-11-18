@@ -226,3 +226,30 @@ select.input { cursor: pointer; }
   from { transform: translateX(20px); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
+
+/* ── Phones and the Android app ── */
+/* The Android app draws under the status bar and the gesture bar; keep things
+   clear of them. Capacitor provides the --safe-area-* values, newer WebViews
+   the env() ones. In a browser they are all 0. */
+:root {
+  --safe-top:    max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-right:  max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --safe-left:   max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+}
+#root { padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left); }
+
+/* The top bar: under the status bar in the app, and it scrolls sideways when
+   the tabs don't fit (phones). */
+.app-nav {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-nav::-webkit-scrollbar { display: none; }
+.app-nav > * { flex-shrink: 0; white-space: nowrap; }
+
+.app-main { padding: var(--space-5); }
+@media (max-width: 640px) {
+  .app-main { padding: var(--space-3); }
+  .app-nav .app-brand-name { display: none; }
+}

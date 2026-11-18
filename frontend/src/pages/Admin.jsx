@@ -1,7 +1,7 @@
 // pages/Admin.jsx — Admin tools: Collection Import/Export + Series Map editor + Rarities +
 // Illustrators fill-in + Backup/Restore
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../api.js';
+import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
 import { isCollectorRarity } from '../rarity.js';
 
@@ -13,6 +13,7 @@ export default function Admin() {
         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-display)' }}>
           v{APP_VERSION}
         </span>
+        {!isNative && <a href="/download" style={{ fontSize: '0.85rem' }}>📲 Android app</a>}
       </div>
       <CollectionImportExport />
       <div style={{ marginTop: 'var(--space-7)' }}>

@@ -6,10 +6,38 @@
 // backend URL changes, you edit 10 files. Here you edit one.
 // It also means error handling, headers, and base URL are consistent everywhere.
 //
-// The base URL comes from the Vite proxy in vite.config.js — all /api/*
-// requests are forwarded to the backend container automatically.
+// In a browser the base URL is just /api: the Vite proxy in vite.config.js
+// forwards it to the backend container. In the Android app the pages come
+// from inside the app, so calls go to the server address typed in when the
+// app was first opened (kept on the phone, never in the code).
 
-const BASE = '/api';
+import { Capacitor } from '@capacitor/core';
+
+export const isNative = Capacitor.isNativePlatform();
+const SERVER_KEY = 'pokecard.server';
+
+export function serverUrl() {
+  if (!isNative) return '';
+  try { return localStorage.getItem(SERVER_KEY) || ''; } catch { return ''; }
+}
+export function setServerUrl(url) {
+  try { localStorage.setItem(SERVER_KEY, url.trim().replace(/\/+$/, '')); } catch { /* private mode */ }
+}
+
+// The API's address, worked out on each call (the app's server can change).
+const base = () => `${serverUrl()}/api`;
+// A full address on the server, for links that leave the page (downloads).
+export const serverLink = (path) => `${serverUrl()}${path}`;
+
+// fetch(), with a plain message when the server can't be reached at all
+// (from the phone that is nearly always NetBird being off).
+async function send(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error(isNative ? "Can't reach the server. Is NetBird connected?" : "Can't reach the server");
+  }
+}
 
 async function request(method, path, body) {
   const options = {
@@ -20,7 +48,7 @@ async function request(method, path, body) {
     options.body = JSON.stringify(body);
   }
 
-  const res = await fetch(`${BASE}${path}`, options);
+  const res = await send(`${base()}${path}`, options);
 
   // 204 No Content (e.g. successful DELETE) has no body — don't try to parse it
   if (res.status === 204) return null;
@@ -41,7 +69,7 @@ async function uploadPicture(path, file, fields = {}) {
   const formData = new FormData();
   for (const [name, value] of Object.entries(fields)) formData.append(name, value);
   formData.append('picture', file);
-  const res = await fetch(`${BASE}${path}`, { method: 'POST', body: formData });
+  const res = await send(`${base()}${path}`, { method: 'POST', body: formData });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
   return data;
@@ -91,15 +119,15 @@ export const api = {
 
   // ── Import ────────────────────────────────────────────────────────────────
   import: {
-    excel:      (formData) => fetch(`${BASE}/import`, { method: 'POST', body: formData }).then(r => r.json()),
-    collection: (formData) => fetch(`${BASE}/import/collection`, { method: 'POST', body: formData }).then(r => r.json()),
+    excel:      (formData) => send(`${base()}/import`, { method: 'POST', body: formData }).then(r => r.json()),
+    collection: (formData) => send(`${base()}/import/collection`, { method: 'POST', body: formData }).then(r => r.json()),
   },
   // ── Backup ────────────────────────────────────────────────────────────────
   backup: {
     run:      ()         => request('POST', '/backup/run'),
     list:     ()         => request('GET',  '/backup/list'),
-    restore:  (formData) => fetch('/api/backup/restore', { method: 'POST', body: formData }).then(r => r.json()),
-    download: (filename) => window.open(`/api/backup/download/${filename}`, '_blank'),
+    restore:  (formData) => send(`${base()}/backup/restore`, { method: 'POST', body: formData }).then(r => r.json()),
+    download: (filename) => window.open(`${base()}/backup/download/${filename}`, '_blank'),
   },
   // ── Admin ─────────────────────────────────────────────────────────────────
 admin: {
@@ -135,16 +163,16 @@ admin: {
   // the result (the card image CDN doesn't allow that directly).
   images: {
     cardBlob: async (cardId, size = 400) => {
-      const res = await fetch(`${BASE}/images/card/${cardId}?size=${size}`);
+      const res = await send(`${base()}/images/card/${cardId}?size=${size}`);
       return res.ok ? res.blob() : null;
     },
   },
   exports: {
     list:   () => request('GET', '/exports'),
     remove: (id) => request('DELETE', `/exports/${id}`),
-    imageUrl: (id, n) => `${BASE}/exports/${id}/${n}`,
+    imageUrl: (id, n) => `${base()}/exports/${id}/${n}`,
     create: async (formData) => {
-      const res = await fetch(`${BASE}/exports`, { method: 'POST', body: formData });
+      const res = await send(`${base()}/exports`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
       return data;
@@ -200,7 +228,7 @@ admin: {
   bulk: {
     listings: () => request('GET', '/bulk/listings'),
     importFiles: async (formData) => {
-      const res = await fetch(`${BASE}/bulk/import`, { method: 'POST', body: formData });
+      const res = await send(`${base()}/bulk/import`, { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
       return data;
@@ -211,6 +239,11 @@ admin: {
     topValuable:        () => request('GET', '/reports/top-valuable'),
     storageAuditSafe:      () => request('GET', '/reports/storage-audit-safe'),
     storageAuditToploader: () => request('GET', '/reports/storage-audit-toploader'),
+  },
+  // ── Android app ───────────────────────────────────────────────────────────
+  // { versionCode, versionName } of the app build on the server ({} if none)
+  app: {
+    latest: () => request('GET', '/app/latest'),
   },
   // ── Uploaded pictures ─────────────────────────────────────────────────────
   // For picture fields in a form (logos, symbols): stores the file and answers

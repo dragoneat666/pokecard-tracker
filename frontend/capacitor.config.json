@@ -1,0 +1,17 @@
+{
+  "appId": "com.dragoneat666.pokecard",
+  "appName": "PokeCard Tracker",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DEFAULT",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

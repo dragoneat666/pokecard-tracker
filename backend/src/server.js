@@ -19,6 +19,7 @@ import toppsRouter from './routes/topps.js';
 import coinsRouter from './routes/coins.js';
 import uploadsRouter from './routes/uploads.js';
 import browseRouter from './routes/browse.js';
+import appDownloadRouter from './routes/appDownload.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -54,6 +55,8 @@ app.use('/api/topps', toppsRouter);
 app.use('/api/coins', coinsRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/browse', browseRouter);
+// The Android app's download page (/download) and version check (/api/app/latest)
+app.use(appDownloadRouter);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
