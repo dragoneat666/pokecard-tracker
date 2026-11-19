@@ -251,4 +251,18 @@ admin: {
   uploads: {
     picture: (file) => uploadPicture('/uploads/picture', file),
   },
+  // ── Grading ───────────────────────────────────────────────────────────────
+  grading: {
+    // A photo as the phone took it plus what was found in it, kept on the
+    // server for tuning the photo steps (routes/gradingTests.js).
+    sendTestPhoto: async (photo, meta) => {
+      const formData = new FormData();
+      formData.append('meta', JSON.stringify(meta));
+      formData.append('photo', photo, `photo.${photo.type === 'image/png' ? 'png' : 'jpg'}`);
+      const res = await send(`${base()}/grading/test-photos`, { method: 'POST', body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
+      return data;
+    },
+  },
 };

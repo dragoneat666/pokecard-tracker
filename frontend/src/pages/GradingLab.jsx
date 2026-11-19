@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { GRADING_DEFAULTS, mergeSettings, LAB_SETTINGS_KEY as STORE_KEY, labOverrides as loadOverrides } from '../grading/config.js';
-import { loadPhoto, findCard, straighten, turnQuad, warmUp, cardFromScan } from '../grading/vision.js';
+import { loadPhoto, findCard, straighten, turnQuad, warmUp, cardFromScan, detailOf } from '../grading/vision.js';
 import { analyzer } from '../grading/analyzers.js';
 
 // Every step on one photo. Answers the numbers plus the pictures for the page.
@@ -58,7 +58,7 @@ export default function GradingLab() {
         const r = await runPipeline(source, mergeSettings(options.overrides || loadOverrides()), options);
         r.bitmap?.close?.();
         return {
-          quad: r.found?.quad || null, rough: r.found?.rough, score: r.found?.score, strategy: r.found?.strategy, candidates: r.found?.candidates,
+          quad: r.found?.quad || null, rough: r.found?.rough, bendMm: r.found?.bendMm, score: r.found?.score, strategy: r.found?.strategy, candidates: r.found?.candidates,
           lines: r.borders?.lines, sides: r.borders?.sides, border: r.borders?.border, threshold: r.borders?.threshold,
           measured: r.measured, times: r.times, error: r.error,
         };
@@ -133,6 +133,8 @@ export default function GradingLab() {
               ['Method', result.found?.strategy || '—'],
               ['Score', result.found?.score ?? '—'],
               ['Photo', result.bitmap ? `${result.bitmap.width} × ${result.bitmap.height}` : '—'],
+              ['Bend (mm)', result.found?.bendMm ? result.found.bendMm.map(v => v ?? '?').join(' / ') + ' (top / right / bottom / left)' : '—'],
+              ['Detail', result.found?.quad ? `${detailOf(result.found.quad).toFixed(1)} px per mm` : '—'],
               ['Corners', result.found?.quad ? result.found.quad.map(p => `(${p[0].toFixed(1)}, ${p[1].toFixed(1)})`).join(' ') : '—'],
               ['Times (ms)', Object.entries(result.times).map(([k, v]) => `${k} ${v}`).join(', ')],
             ]} />

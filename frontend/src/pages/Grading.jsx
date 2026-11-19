@@ -10,15 +10,18 @@
 // This is an estimate from photos, not a grade: it says the best grade the
 // centering allows. Edges, corners and surface come in later steps.
 //
-// Everything is worked out on the phone; nothing is sent anywhere yet (saving
-// copies comes with the compare step).
+// Everything is worked out on the phone. Nothing is sent anywhere unless
+// "Send for testing" is tapped: that sends the photo and what was found in it
+// to the server, for tuning the photo steps (saving copies of cards comes
+// with the compare step).
 
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { mergeSettings, labOverrides } from '../grading/config.js';
-import { loadPhoto, findCard, refineCorners, straighten, turnQuad, warmUp } from '../grading/vision.js';
+import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
 import { analyzer } from '../grading/analyzers.js';
-import { isNative } from '../api.js';
+import { api, isNative } from '../api.js';
+import { APP_VERSION } from '../version.js';
 import CameraCapture from '../components/grading/CameraCapture.jsx';
 import CornerEditor from '../components/grading/CornerEditor.jsx';
 import CenteringEditor from '../components/grading/CenteringEditor.jsx';
@@ -69,19 +72,23 @@ export default function Grading() {
     setStep('capture');
   }
 
-  const onPhoto = (file) => busy('Finding the card…', async () => {
+  const onPhoto = (photo, camera = {}) => busy('Finding the card…', async () => {
     freeBitmap();
-    const bitmap = await loadPhoto(file);
+    const bitmap = await loadPhoto(photo);
     bitmapRef.current = bitmap;
     const found = await findCard(bitmap);
     const quad = found.quad || guessQuad(bitmap);
-    setWork({ bitmap, quad, foundQuad: quad, found: !!found.quad, cutOff: !!found.cutOff });
+    setWork({
+      bitmap, quad, foundQuad: quad, found: !!found.quad, cutOff: !!found.cutOff,
+      bendMm: found.bendMm || null, strategy: found.strategy || null,
+      photo, camera, photoSize: [bitmap.width, bitmap.height], sent: false,
+    });
     setStep('corners');
   });
 
   const snap = () => busy('Lining the corners up with the edges…', async () => {
-    const quad = await refineCorners(work.bitmap, work.quad);
-    setWork(w => ({ ...w, quad }));
+    const { quad, bendMm } = await refineEdges(work.bitmap, work.quad);
+    setWork(w => ({ ...w, quad, bendMm }));
     setStep('corners');
   });
 
@@ -95,7 +102,7 @@ export default function Grading() {
 
   function finishSide() {
     const measured = centering.measure({ lines: work.lines }, settings);
-    const result = { image: work.image, lines: work.lines, sides: work.sides, measured };
+    const result = { ...work, bitmap: null, measured, sent: false };
     const next = { ...done, [side]: result };
     setDone(next);
     freeBitmap();
@@ -144,6 +151,7 @@ export default function Grading() {
                 ? 'The card seems to run off the edge of the photo. Retake it with a little space all round the card, or drag the corners onto the card\'s corners.'
                 : 'Couldn\'t find the card by itself. Drag the 4 corners onto the card\'s corners, then tap "Snap to edges".'}
           </p>
+          <PhotoChecks work={work} settings={settings} />
           <CornerEditor bitmap={work.bitmap} quad={work.quad} onChange={quad => setWork(w => ({ ...w, quad }))} />
           <div style={rowStyle}>
             <button className="btn btn-primary" onClick={() => toCentering()}>Looks right</button>
@@ -151,6 +159,7 @@ export default function Grading() {
             <button className="btn btn-ghost" onClick={() => setWork(w => ({ ...w, quad: w.foundQuad }))}>Reset</button>
             <button className="btn btn-ghost" onClick={() => redoSide(side)}>Retake</button>
           </div>
+          <SendTest data={{ ...work, side }} onSent={() => setWork(w => ({ ...w, sent: true }))} />
         </section>
       )}
 
@@ -171,7 +180,8 @@ export default function Grading() {
         </section>
       )}
 
-      {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={start} />}
+      {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={start}
+        onSent={s => setDone(d => ({ ...d, [s]: { ...d[s], sent: true } }))} />}
     </div>
   );
 }
@@ -192,7 +202,9 @@ function Home({ onStart }) {
           <li>Take the card out of its sleeve or top loader (the plastic adds glare and hides the edges).</li>
           <li>Lay it on a plain dark surface, like a black mouse mat or cloth.</li>
           <li>Even light from the side, no flash. Move the light if there's glare on the card.</li>
-          <li>Hold the phone flat, straight above the card, so the card fills most of the picture.</li>
+          <li>Hold the phone flat, straight above the card, so the card fills most of the picture. Too close and the camera can't focus: if it says "Blurry", move back a little.</li>
+          <li>A bent card throws the centering off. Flatten it first, or lay a sheet of clean glass over it (bigger than the picture, so its edges stay out of the photo).</li>
+          <li>If your phone has more than one back camera, try each one (the list is under the camera view) and keep the sharpest.</li>
           <li>Hold still. The photo is taken by itself when the card is steady.</li>
         </ul>
       </section>
@@ -209,7 +221,7 @@ function Home({ onStart }) {
   );
 }
 
-function Result({ done, settings, onRedo, onAnother }) {
+function Result({ done, settings, onRedo, onAnother, onSent }) {
   const cap = centering.cap({ front: done.front?.measured, back: done.back?.measured }, settings);
   const range = cap && cap.low !== cap.high ? `${cap.low}–${cap.high}` : null;
   return (
@@ -237,6 +249,7 @@ function Result({ done, settings, onRedo, onAnother }) {
               </tbody>
             </table>
             <button className="btn btn-ghost btn-sm" onClick={() => onRedo(s)}>Redo the {s}</button>
+            <SendTest data={{ ...done[s], side: s }} onSent={() => onSent(s)} small />
           </section>
         ))}
       </div>
@@ -267,6 +280,62 @@ function CardPreview({ image, lines }) {
     });
   }, [image, lines, cssW]);
   return <div ref={wrapRef}><canvas ref={ref} style={{ display: 'block', margin: '0 auto', borderRadius: 6 }} /></div>;
+}
+
+// Warnings about the photo itself: a bent card, too little detail, blurry.
+function PhotoChecks({ work, settings }) {
+  const bend = worstBend(work.bendMm);
+  const detail = detailOf(work.quad);
+  const warnings = [];
+  if (bend !== null && bend >= settings.photo.bentWarnMm) {
+    warnings.push(`The card looks bent: an edge curves by about ${bend.toFixed(1)} mm. That shifts the border lines, so the centering may be off. Flatten the card (or lay clear glass over it) and retake.`);
+  }
+  if (detail < settings.photo.minDetailPxPerMm) {
+    warnings.push(`Not much detail: ${detail.toFixed(0)} pixels per mm of card (${settings.image.pxPerMm} is ideal). Move a little closer, or pick a sharper camera under the camera view.`);
+  }
+  if (work.camera?.maybeBlurry) warnings.push('The camera never got the card fully sharp, so this photo may be blurry. Moving the phone back a little usually helps.');
+  return (
+    <>
+      {warnings.map(w => <p key={w} style={{ margin: 0, color: 'var(--warning)' }}>⚠️ {w}</p>)}
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        {[`detail ${detail.toFixed(0)} px/mm`, bend !== null && `bend ${bend.toFixed(2)} mm`, `photo ${work.photoSize.join('×')}`, work.camera?.how === 'file' ? 'from a file' : work.camera?.how]
+          .filter(Boolean).join(' · ')}
+      </div>
+    </>
+  );
+}
+
+// Sends this side's photo (exactly as taken) and what was found in it to the
+// server, for tuning (routes/gradingTests.js).
+function SendTest({ data, onSent, small = false }) {
+  const [state, setState] = useState('');   // '' | sending | error message
+  if (!data.photo) return null;
+  if (data.sent) return <div style={{ fontSize: '0.85rem', color: 'var(--success)' }}>✓ Sent for testing</div>;
+  async function send() {
+    setState('sending');
+    try {
+      await api.grading.sendTestPhoto(data.photo, {
+        side: data.side, appVersion: APP_VERSION, native: isNative,
+        camera: data.camera, photoSize: data.photoSize,
+        found: { ok: data.found, cutOff: data.cutOff, strategy: data.strategy, quad: data.foundQuad },
+        quad: data.quad, bendMm: data.bendMm, detailPxPerMm: Math.round(detailOf(data.quad) * 10) / 10,
+        lines: data.lines || null, foundLines: data.foundLines || null, measured: data.measured || null,
+        labSettings: labOverrides(),
+      });
+      setState('');
+      onSent();
+    } catch (err) {
+      setState(err.message);
+    }
+  }
+  return (
+    <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <button className={`btn btn-ghost${small ? ' btn-sm' : ''}`} disabled={state === 'sending'} onClick={send}>
+        {state === 'sending' ? 'Sending…' : '📤 Send for testing'}
+      </button>
+      {state && state !== 'sending' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{state}</span>}
+    </div>
+  );
 }
 
 // Where to start the corners when the card wasn't found: a card-shaped

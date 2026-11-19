@@ -53,7 +53,7 @@ self.onmessage = async (e) => {
     let result;
     if (type === 'init') result = { ok: true };
     else if (type === 'detect') result = detect(e.data.image, e.data.debug);
-    else if (type === 'refine') result = { quad: refine(e.data.image, e.data.quad) };
+    else if (type === 'refine') result = refine(e.data.image, e.data.quad);
     else if (type === 'warp') {
       const image = warp(e.data.image, e.data.quad, e.data.width, e.data.height);
       self.postMessage({ id, result: { image } }, [image.data.buffer]);
@@ -372,7 +372,7 @@ function supportAlong(o, support) {
 function refine(imageData, quad) {
   const W = imageData.width, H = imageData.height, px = imageData.data;
   const o = quad.map(p => [p[0], p[1]]);
-  const lines = [];
+  const lines = [], bows = [];
   // How far either side of the first guess to look. Kept short on purpose: a
   // narrow border puts the art's edge (often a sharper change than the card's
   // own edge) only a little way inside, and that must not be picked instead.
@@ -401,13 +401,56 @@ function refine(imageData, quad) {
     }
     const line = fitLine(pts);
     lines.push(line || lineThrough(p, q));
+    bows.push({ sag: line ? bowOf(pts, p, ux, uy, len) : null, len });
   }
   const out = [];
   for (let i = 0; i < 4; i++) {
     const c = intersect(lines[(i + 3) % 4], lines[i]);
     out.push(c || o[i]);
   }
-  return out.map(([x, y]) => [round(x, 2), round(y, 2)]);
+  // How far each side bows away from straight, in mm (a long side is 88 mm,
+  // a short one 63).
+  const longest = Math.max(...bows.map(b => b.len));
+  const bendMm = bows.map(b => b.sag === null ? null
+    : round(b.sag / b.len * (b.len > 0.85 * longest ? 88 : 63), 2));
+  return { quad: out.map(([x, y]) => [round(x, 2), round(y, 2)]), bendMm };
+}
+
+// A bent card's edges curve. Fits a gentle curve (a parabola across the side)
+// to the side's edge points and answers how far its middle sits from the
+// straight line between its ends, in pixels. Done twice, leaving out points
+// far from the first curve (dust, a shadow, the art's edge picked by mistake).
+function bowOf(pts, p, ux, uy, len) {
+  if (pts.length < 20) return null;
+  // position along the side (0..1) and distance off the side's first line
+  let data = pts.map(([x, y]) => [((x - p[0]) * ux + (y - p[1]) * uy) / len, (x - p[0]) * uy - (y - p[1]) * ux]);
+  let fit = null;
+  for (let pass = 0; pass < 3; pass++) {
+    fit = parabola(data);
+    if (!fit) return null;
+    const res = data.map(([t, d]) => Math.abs(d - (fit[0] + fit[1] * t + fit[2] * t * t)));
+    const sorted = [...res].sort((a, b) => a - b);
+    const cut = Math.max(1.5, 2.5 * sorted[Math.floor(sorted.length / 2)]);
+    const keep = data.filter((_, i) => res[i] <= cut);
+    if (keep.length < 20 || keep.length === data.length) break;
+    data = keep;
+  }
+  // d = a + b·t + c·t²: the middle (t = 0.5) is c/4 off the chord
+  return Math.abs(fit[2]) / 4;
+}
+
+// Least-squares d = a + b·t + c·t² through [t, d] points.
+function parabola(data) {
+  const S = Array(5).fill(0), T = Array(3).fill(0);
+  for (const [t, d] of data) {
+    let tp = 1;
+    for (let k = 0; k < 5; k++) { S[k] += tp; if (k < 3) T[k] += tp * d; tp *= t; }
+  }
+  const M = [[S[0], S[1], S[2]], [S[1], S[2], S[3]], [S[2], S[3], S[4]]];
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const D = det(M);
+  if (Math.abs(D) < 1e-12) return null;
+  return [0, 1, 2].map(k => det(M.map((row, r) => row.map((v, c) => (c === k ? T[r] : v)))) / D);
 }
 
 // Average colour of a 3x3 patch (bilinear centre), or null off the image.

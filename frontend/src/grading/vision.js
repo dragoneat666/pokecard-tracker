@@ -110,15 +110,38 @@ export async function findCard(bitmap, { debug = false } = {}) {
   const candidates = found.candidates?.map(c => ({ ...c, quad: fromCopy(c.quad, small) }));
   if (!found.quad) return { quad: null, cutOff: !!found.cutOff, candidates };
   const rough = fromCopy(found.quad, small);
-  const quad = await refineCorners(bitmap, rough);
-  return { quad, rough, score: found.score, strategy: found.strategy, candidates };
+  const { quad, bendMm } = await refineEdges(bitmap, rough);
+  return { quad, rough, bendMm, score: found.score, strategy: found.strategy, candidates };
 }
 
 // Moves rough corners (photo pixels) onto the card's exact edges.
 export async function refineCorners(bitmap, quad) {
+  return (await refineEdges(bitmap, quad)).quad;
+}
+
+// The same, plus how far each side bows away from straight, in mm (top,
+// right, bottom, left as the corners go; null where a side's edge was too
+// broken up to tell). A bent card throws the centering off.
+export async function refineEdges(bitmap, quad) {
   const big = pixelsOf(bitmap, REFINE_SIDE);
-  const { quad: refined } = await call('refine', { image: big.data, quad: toCopy(quad, big) }, [big.data.data.buffer]);
-  return fromCopy(refined, big);
+  const { quad: refined, bendMm } = await call('refine', { image: big.data, quad: toCopy(quad, big) }, [big.data.data.buffer]);
+  return { quad: fromCopy(refined, big), bendMm };
+}
+
+// The biggest bend of any side, or null when none could be measured.
+export const worstBend = (bendMm) => {
+  const known = (bendMm || []).filter(v => v !== null && v !== undefined);
+  return known.length ? Math.max(...known) : null;
+};
+
+// How much detail the photo has of the card: pixels per mm along the card's
+// long sides. The straightened card uses GRADING_DEFAULTS.image.pxPerMm (20);
+// a photo with less is blown up to fit, which looks soft.
+export function detailOf(quad) {
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const sides = [d(quad[0], quad[1]), d(quad[1], quad[2]), d(quad[2], quad[3]), d(quad[3], quad[0])];
+  const long = (sides[0] + sides[2] > sides[1] + sides[3]) ? (sides[0] + sides[2]) / 2 : (sides[1] + sides[3]) / 2;
+  return long / 88;
 }
 
 // The card cut out and flattened to CARD_W x CARD_H, as ImageData.

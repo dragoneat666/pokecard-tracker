@@ -14,6 +14,18 @@ export const GRADING_DEFAULTS = {
   // 63 x 88 mm card. Fixed so measurements from different photos line up.
   image: { width: 1260, height: 1760, pxPerMm: 20 },
 
+  // Checks on the photo itself, shown as warnings (they don't change results).
+  photo: {
+    // A side whose edge bows more than this (mm, middle vs. straight) means
+    // the card is bent: it isn't flat, so the straightened picture isn't
+    // either, and the border lines shift. 0.35 mm is about a tenth of a
+    // typical 3 mm border.
+    bentWarnMm: 0.35,
+    // Fewer pixels per mm of card than this and the straightened card is
+    // blown up from a small picture (soft).
+    minDetailPxPerMm: 15,
+  },
+
   centering: {
     // For each grade, the most lopsided centering allowed, as the bigger
     // side's share: 55 means 55/45. Front and back are separate because
