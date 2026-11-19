@@ -34,7 +34,6 @@ function Layout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <StartOnGrading />
-      <UpdateBanner />
       <nav className="app-nav" style={{
         background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
@@ -75,6 +74,8 @@ function Layout() {
           Denflix
         </span>
       </nav>
+      {/* below the top bar: above it, it sat under the phone's status bar */}
+      <UpdateBanner />
       <main className="app-main" style={{ flex: 1, minWidth: 0 }}>
         <Routes>
           <Route path="/"         element={<Dashboard />} />

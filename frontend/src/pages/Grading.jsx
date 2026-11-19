@@ -203,8 +203,8 @@ function Home({ onStart }) {
           <li>Lay it on a plain dark surface, like a black mouse mat or cloth.</li>
           <li>Even light from the side, no flash. Move the light if there's glare on the card.</li>
           <li>Hold the phone flat, straight above the card, so the card fills most of the picture. Too close and the camera can't focus: if it says "Blurry", move back a little.</li>
-          <li>A bent card throws the centering off. Flatten it first, or lay a sheet of clean glass over it (bigger than the picture, so its edges stay out of the photo).</li>
-          <li>If your phone has more than one back camera, try each one (the list is under the camera view) and keep the sharpest.</li>
+          <li>Keep the card in the middle of the picture (the dashed outline). A gently curled card is fine for centering there; a badly bent one should be flattened first.</li>
+          <li>Keep tall things out of the picture: the camera may focus on them instead of the card.</li>
           <li>Hold still. The photo is taken by itself when the card is steady.</li>
         </ul>
       </section>
@@ -288,7 +288,7 @@ function PhotoChecks({ work, settings }) {
   const detail = detailOf(work.quad);
   const warnings = [];
   if (bend !== null && bend >= settings.photo.bentWarnMm) {
-    warnings.push(`The card looks bent: an edge curves by about ${bend.toFixed(1)} mm. That shifts the border lines, so the centering may be off. Flatten the card (or lay clear glass over it) and retake.`);
+    warnings.push(`The card looks bent: an edge curves by about ${bend.toFixed(1)} mm. The centering may be off by a point or so. For the most accurate result, flatten it and retake, with the card in the middle of the picture.`);
   }
   if (detail < settings.photo.minDetailPxPerMm) {
     warnings.push(`Not much detail: ${detail.toFixed(0)} pixels per mm of card (${settings.image.pxPerMm} is ideal). Move a little closer, or pick a sharper camera under the camera view.`);

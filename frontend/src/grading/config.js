@@ -18,9 +18,12 @@ export const GRADING_DEFAULTS = {
   photo: {
     // A side whose edge bows more than this (mm, middle vs. straight) means
     // the card is bent: it isn't flat, so the straightened picture isn't
-    // either, and the border lines shift. 0.35 mm is about a tenth of a
-    // typical 3 mm border.
-    bentWarnMm: 0.35,
+    // either. A gentle curl mostly cancels out (both borders on that axis
+    // shift alike): test photos of cards arched by up to 4 mm (edges bowing
+    // 0.8 mm) moved the centering by at most 1 point, so this only warns
+    // past 0.6 mm. (0.35 at first; phone photos of ordinary cards measured
+    // 0.1-0.36.)
+    bentWarnMm: 0.6,
     // Fewer pixels per mm of card than this and the straightened card is
     // blown up from a small picture (soft).
     minDetailPxPerMm: 15,
