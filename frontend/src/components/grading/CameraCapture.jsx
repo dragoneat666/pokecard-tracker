@@ -105,7 +105,7 @@ function LiveCamera({ sideName, onPhoto, onFail }) {
           if (stopped) return;
           const quad = found.quad;
           drawOverlay(quad, fw, fh);
-          if (!quad) { recent.length = 0; setStatus('Looking for the card…'); }
+          if (!quad) { recent.length = 0; setStatus(found.cutOff ? 'Move back a little: the whole card must be in the picture, with a gap round it' : 'Looking for the card…'); }
           else {
             recent.push(quad);
             if (recent.length > STEADY_FRAMES) recent.shift();

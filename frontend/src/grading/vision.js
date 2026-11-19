@@ -101,13 +101,14 @@ const fromCopy = (quad, c) => quad.map(([x, y]) => [(x + 0.5) / c.sx - 0.5, (y +
 
 // Finds the card. Answers { quad, score, strategy } with corners in the
 // photo's own pixels, or { quad: null } when no card-shaped outline was found
-// (the page then asks for the corners to be placed by hand).
+// (the page then asks for the corners to be placed by hand). cutOff: the
+// card runs off the edge of the photo (only its frame was found).
 export async function findCard(bitmap, { debug = false } = {}) {
   const small = pixelsOf(bitmap, DETECT_SIDE);
   const found = await call('detect', { image: small.data, debug }, [small.data.data.buffer]);
   // debug: every outline looked at, with its score (or why it was turned down)
   const candidates = found.candidates?.map(c => ({ ...c, quad: fromCopy(c.quad, small) }));
-  if (!found.quad) return { quad: null, candidates };
+  if (!found.quad) return { quad: null, cutOff: !!found.cutOff, candidates };
   const rough = fromCopy(found.quad, small);
   const quad = await refineCorners(bitmap, rough);
   return { quad, rough, score: found.score, strategy: found.strategy, candidates };

@@ -107,10 +107,107 @@ function detect(imageData, debug = false) {
     }
     map.delete();
   }
+  // The card's printed frame (round the art, or a coloured panel) is card-
+  // shaped too, and its edge is often sharper than the card's own edge
+  // (yellow on a grey table hardly differs in brightness). So look just
+  // outside the chosen outline: a second straight edge on all four sides
+  // means the chosen one was the frame, and the card's edge is out there.
+  let cutOff = false;
+  if (best) {
+    const out = outerEdge(best.quad, imageData, W, H);
+    if (out.quad) {
+      const { score } = scoreQuad(out.quad, W, H, support);
+      if (score > 0) best = { quad: out.quad, score, strategy: best.strategy + ', moved out to the card edge' };
+    } else if (out.cutOff) {
+      cutOff = true;
+      best = null;
+    }
+  }
   [src, rgb, gray, hsv, chans, sat, support].forEach(m => m.delete());
   const extra = debug ? { candidates: candidates.sort((a, b) => b.score - a.score).slice(0, 12) } : {};
-  if (!best) return { quad: null, ...extra };
+  if (!best) return { quad: null, cutOff, ...extra };
   return { quad: upright(best.quad), score: round(best.score, 3), strategy: best.strategy, ...extra };
+}
+
+// For each side of the outline, a straight edge parallel to it a little way
+// outside it (up to 12% of the card's width: wider than any card's border),
+// with plain colour in between. Works on the average colour along lines
+// parallel to the side, one per pixel of distance: averaging hundreds of
+// pixels cancels out the photo's noise (a dark mat is noisy), so what is left
+// is how the colour changes going outwards: the frame, the plain border, then
+// a clear change where the card ends. Answers
+//   { quad }     a bigger outline, when all four sides have such an edge
+//   { cutOff }   some sides have one and the others run off the photo: the
+//                outline is the card's frame and the card itself goes past
+//                the edge of the picture
+//   {}           nothing outside: the outline is the card's own edge
+function outerEdge(quad, image, W, H) {
+  const px = image.data;
+  const o = orderClockwise(quad);
+  const cx = o.reduce((s, p) => s + p[0], 0) / 4, cy = o.reduce((s, p) => s + p[1], 0) / 4;
+  const short = Math.min(dist(o[0], o[1]), dist(o[1], o[2]));
+  const from = Math.max(4, Math.round(0.012 * short)), to = Math.round(0.12 * short);
+  const MIN_STEP = 30;          // colour change (of averages) that counts as an edge
+  const sides = [];
+  for (let i = 0; i < 4; i++) {
+    const p = o[i], q = o[(i + 1) % 4], len = dist(p, q);
+    let nx = -(q[1] - p[1]) / len, ny = (q[0] - p[0]) / len;
+    const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+    if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }     // point outwards
+    const steps = Math.max(30, Math.round(len / 2));
+    // average colour at each distance outwards
+    const prof = [];
+    let offPhoto = false;
+    for (let off = 0; off <= to + 2; off++) {
+      let r = 0, g = 0, b = 0, n = 0, outside = false;
+      for (let k = Math.round(steps * 0.15); k <= Math.round(steps * 0.85); k++) {
+        const t = k / steps;
+        const x = Math.round(p[0] + (q[0] - p[0]) * t + nx * off), y = Math.round(p[1] + (q[1] - p[1]) * t + ny * off);
+        if (x < 1 || y < 1 || x > W - 2 || y > H - 2) { outside = true; break; }
+        const j = (y * W + x) * 4;
+        r += px[j]; g += px[j + 1]; b += px[j + 2]; n++;
+      }
+      if (outside) { offPhoto = true; break; }
+      prof.push([r / n, g / n, b / n]);
+    }
+    const cd = (a, c) => Math.hypot(a[0] - c[0], a[1] - c[1], a[2] - c[2]);
+    const step = (off) => (off >= 2 && off + 2 < prof.length) ? cd(prof[off + 2], prof[off - 2]) : 0;
+    // The strongest change in range that is a peak, with a calm stretch (the
+    // plain border) between it and the outline.
+    let best = null;
+    for (let off = from; off + 2 < prof.length; off++) {
+      const v = step(off);
+      if (v < MIN_STEP || v < step(off - 1) || v < step(off + 1)) continue;
+      let calm = Infinity;
+      for (let k = 3; k < off - 1; k++) calm = Math.min(calm, step(k));
+      if (calm > 0.3 * v) continue;
+      if (!best || v > best.v) best = { off, v };
+    }
+    let off = null;
+    if (best) {
+      // between pixels, from the curve through the peak and its neighbours
+      const a = step(best.off - 1), b = best.v, c = step(best.off + 1);
+      const den = a - 2 * b + c;
+      off = best.off + (den < 0 ? Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / den)) : 0);
+    }
+    sides.push({ off, offPhoto: off === null && offPhoto, n: [nx, ny] });
+  }
+  const withEdge = sides.filter(s => s.off !== null).length;
+  if (withEdge === 4) {
+    const lines = sides.map((s, i) => {
+      const p = o[i], q = o[(i + 1) % 4];
+      return lineThrough([p[0] + s.n[0] * s.off, p[1] + s.n[1] * s.off], [q[0] + s.n[0] * s.off, q[1] + s.n[1] * s.off]);
+    });
+    const out = [];
+    for (let i = 0; i < 4; i++) {
+      const c = intersect(lines[(i + 3) % 4], lines[i]);
+      if (!c) return {};
+      out.push(c);
+    }
+    return { quad: out, offsets: sides.map(s => round(s.off, 1)) };
+  }
+  if (withEdge >= 2 && sides.every(s => s.off !== null || s.offPhoto)) return { cutOff: true };
+  return {};
 }
 
 // Straight lines through each side's outline points (leaving out the ends of

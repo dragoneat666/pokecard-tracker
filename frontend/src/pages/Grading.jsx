@@ -75,7 +75,7 @@ export default function Grading() {
     bitmapRef.current = bitmap;
     const found = await findCard(bitmap);
     const quad = found.quad || guessQuad(bitmap);
-    setWork({ bitmap, quad, foundQuad: quad, found: !!found.quad });
+    setWork({ bitmap, quad, foundQuad: quad, found: !!found.quad, cutOff: !!found.cutOff });
     setStep('corners');
   });
 
@@ -139,8 +139,10 @@ export default function Grading() {
         <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
           <p style={{ margin: 0 }}>
             {work.found
-              ? 'Check the green outline sits on the card\'s edges all the way round. Move a corner if it doesn\'t.'
-              : 'Couldn\'t find the card by itself. Drag the 4 corners onto the card\'s corners, then tap "Snap to edges".'}
+              ? 'Check the green outline sits on the card\'s outer edges all the way round (not on the frame inside the border). Move a corner if it doesn\'t.'
+              : work.cutOff
+                ? 'The card seems to run off the edge of the photo. Retake it with a little space all round the card, or drag the corners onto the card\'s corners.'
+                : 'Couldn\'t find the card by itself. Drag the 4 corners onto the card\'s corners, then tap "Snap to edges".'}
           </p>
           <CornerEditor bitmap={work.bitmap} quad={work.quad} onChange={quad => setWork(w => ({ ...w, quad }))} />
           <div style={rowStyle}>
