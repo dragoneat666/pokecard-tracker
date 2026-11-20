@@ -278,7 +278,11 @@ router.get('/:id', async (req, res, next) => {
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
         (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
-        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value
+        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value,
+        -- Grading tab: copies saved, and whether one was picked to sell
+        (SELECT COUNT(*)::INT FROM grading_copies g WHERE g.card_id = c.id) AS grading_copies,
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status = 'sell') AS regular_to_sell,
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id
@@ -305,7 +309,11 @@ router.get('/:id', async (req, res, next) => {
         cp.market_price, cp.low_price, cp.reverse_holo_price,
         cp.fetched_at AS price_updated_at,
         (CASE WHEN c.is_graded THEN c.graded_price ELSE cp.market_price END * c.owned) AS total_value,
-        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value
+        (CASE WHEN rh.is_graded THEN rh.graded_price ELSE cp.reverse_holo_price END * rh.owned) AS reverse_total_value,
+        -- Grading tab: copies saved, and whether one was picked to sell
+        (SELECT COUNT(*)::INT FROM grading_copies g WHERE g.card_id = c.id) AS grading_copies,
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status = 'sell') AS regular_to_sell,
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id

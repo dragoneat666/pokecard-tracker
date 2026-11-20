@@ -175,6 +175,32 @@ export const GRADING_DEFAULTS = {
     closeMinMm: 0.3,
     closeDepthMm: 0.05,
   },
+
+  // The surface is judged by eye (a phone photo can't show fine scratches or
+  // dents): a short checklist per side, each thing None / Slight / Obvious.
+  // `caps` is the best grade allowed with it [slight, obvious]. A rough guide,
+  // the same for front and back.
+  surface: {
+    items: [
+      { id: 'scratches', label: 'Scratches or scuffs', hint: 'tilt the card under a light to see them', caps: [9, 7] },
+      { id: 'printLines', label: 'Print lines or dots', hint: 'from the factory: thin lines or specks in the print', caps: [9, 8] },
+      { id: 'dents', label: 'Dents or dimples', hint: 'small pressed-in spots, seen with the card at an angle', caps: [8, 6] },
+      { id: 'marks', label: 'Marks, stains or writing', caps: [8, 5] },
+      { id: 'creases', label: 'Creases or bends', hint: 'a line across the card, or a bend that stays', caps: [5, 3] },
+    ],
+    floor: 3,
+  },
+
+  // Comparing two copies of a card (grading/compare.js): when both get the
+  // same estimate, the smaller differences below decide, as long as they are
+  // bigger than these (smaller ones are within what a photo can tell).
+  compare: {
+    frontCenteringPoints: 2,     // 55/45 vs 57/43
+    backCenteringPoints: 5,
+    frontWhiteningMm: 1,         // and at least a quarter more
+    backWhiteningMm: 3,
+    share: 0.25,
+  },
 };
 
 // Settings = defaults with any saved overrides laid on top (deep merge; arrays

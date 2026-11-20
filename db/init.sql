@@ -343,6 +343,27 @@ CREATE TABLE rarity_rules (
 );
 
 
+-- ─── GRADING: SAVED COPIES ───────────────────────────────────────────────────
+-- Copies of a card checked on the Grading tab, to compare two copies and pick
+-- which to keep (see db/migrations/0.7.36-grading-copies.sql for the details).
+-- Pictures are files in the grading volume; `images` only names them.
+CREATE TABLE grading_copies (
+  id             SERIAL PRIMARY KEY,
+  card_id        INT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  slot           TEXT NOT NULL DEFAULT 'regular' CHECK (slot IN ('regular', 'reverse')),
+  status         TEXT NOT NULL DEFAULT 'checked' CHECK (status IN ('checked', 'keep', 'sell')),
+  label          TEXT,
+  estimate       SMALLINT,
+  estimate_low   SMALLINT,
+  estimate_high  SMALLINT,
+  result         JSONB NOT NULL DEFAULT '{}',
+  images         JSONB NOT NULL DEFAULT '{}',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_grading_copies_card ON grading_copies(card_id, slot);
+
+
 -- ─── API USAGE LOG ────────────────────────────────────────────────────────────
 -- Tracks daily call counts for rate-limited third-party APIs (e.g. graded
 -- pricing via RapidAPI/pokemon-api.com) so we never exceed free-tier limits

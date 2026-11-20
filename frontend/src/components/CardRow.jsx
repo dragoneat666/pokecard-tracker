@@ -9,8 +9,13 @@
 // Graded cards render a 2nd <tr> below the main row, holding both the
 // Regular and Reverse/1st-Edition graded slots side by side. Each slot
 // only counts toward owned/pricing once BOTH company and grade are set.
+//
+// With 2 copies ticked, a small link opens the card on the Grading tab to
+// compare them; once a copy has been picked to sell there, the link shows
+// "1 to sell" instead (until the second box is unticked).
 
 import { memo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { isCollectorRarity, rarityMeta, formatPrice } from '../rarity.js';
 import HoverPreview from './HoverPreview.jsx';
 
@@ -134,6 +139,9 @@ const CardRow = memo(function CardRow({
                 dim={card.owned < 1}
               />
             )}
+            {card.owned >= 2 && (
+              <GradingLink card={card} toSell={card.regular_to_sell} />
+            )}
           </div>
         </td>
 
@@ -141,12 +149,15 @@ const CardRow = memo(function CardRow({
         {showVariantCol && (
           <td style={tdStyle}>
             {(variantType === 'first_edition' ? card.has_first_edition : card.has_reverse_holo) ? (
+              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               <Checkbox
                 checked={card.reverse_owned >= 1}
                 onClick={handleReverseClick}
                 title={variantType === 'first_edition' ? 'Own first edition' : 'Own reverse holo'}
                 color="var(--rarity-holo)"
               />
+              {card.reverse_owned >= 2 && card.reverse_to_sell && <GradingLink card={card} slot="reverse" toSell />}
+              </span>
             ) : (
               <span style={{ color: 'var(--text-muted)' }}>—</span>
             )}
@@ -401,6 +412,26 @@ function GradedSlot({
 }
 
 // ── Checkbox ─────────────────────────────────────────────────────────────────
+// Opens the card on the Grading tab: "1 to sell" once a copy was picked to
+// sell there, otherwise a small scales icon to go and compare the copies.
+function GradingLink({ card, slot = 'regular', toSell = false }) {
+  const to = `/grading?card=${card.id}${slot === 'reverse' ? '&slot=reverse' : ''}`;
+  if (toSell) {
+    return (
+      <Link to={to} title="You picked a copy to sell on the Grading tab. Untick the box once it's gone."
+        style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap', textDecoration: 'none' }}>
+        1 to sell
+      </Link>
+    );
+  }
+  return (
+    <Link to={to} title={card.grading_copies ? 'See the saved copies on the Grading tab' : 'Compare your 2 copies on the Grading tab'}
+      style={{ fontSize: '0.85rem', textDecoration: 'none', opacity: 0.75 }}>
+      ⚖️
+    </Link>
+  );
+}
+
 function Checkbox({ checked, onClick, title, dim = false, color = 'var(--success)' }) {
   return (
     <div

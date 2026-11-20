@@ -21,6 +21,7 @@ import uploadsRouter from './routes/uploads.js';
 import browseRouter from './routes/browse.js';
 import appDownloadRouter from './routes/appDownload.js';
 import gradingTestsRouter from './routes/gradingTests.js';
+import gradingCopiesRouter from './routes/gradingCopies.js';
 
 import { startPriceSync } from './jobs/priceSync.js';
 
@@ -57,6 +58,7 @@ app.use('/api/coins', coinsRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/browse', browseRouter);
 app.use('/api/grading', gradingTestsRouter);
+app.use('/api/grading', gradingCopiesRouter);
 // The Android app's download page (/download) and version check (/api/app/latest)
 app.use(appDownloadRouter);
 

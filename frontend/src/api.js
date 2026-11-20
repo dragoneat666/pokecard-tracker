@@ -264,5 +264,27 @@ admin: {
       if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
       return data;
     },
+    // Saved copies of cards (routes/gradingCopies.js)
+    searchCards: (q) => request('GET', `/grading/cards/search?q=${encodeURIComponent(q)}`),
+    queue: (limit = 30) => request('GET', `/grading/queue?limit=${limit}`),
+    card: (id) => request('GET', `/grading/cards/${id}`),
+    // meta: { cardId, slot, label, estimate, estimateLow, estimateHigh, result };
+    // pictures: { front, frontThumb, back, backThumb } (JPEG blobs, any left out)
+    saveCopy: async (meta, pictures) => {
+      const formData = new FormData();
+      formData.append('meta', JSON.stringify(meta));
+      for (const [name, blob] of Object.entries(pictures)) if (blob) formData.append(name, blob, `${name}.jpg`);
+      const res = await send(`${base()}/grading/copies`, { method: 'POST', body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.message || `Request failed: ${res.status}`);
+      return data;
+    },
+    updateCopy: (id, changes) => request('PATCH', `/grading/copies/${id}`, changes),
+    keepCopy: (id) => request('POST', `/grading/copies/${id}/keep`),
+    deleteCopy: (id) => request('DELETE', `/grading/copies/${id}`),
   },
 };
+
+// The full address of a saved copy's picture (copy.images.* are paths under
+// the API, e.g. /grading/images/12-front-ab12cd.jpg).
+export const gradingImage = (p) => (p ? `${base()}${p}` : null);

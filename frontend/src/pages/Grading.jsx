@@ -1,6 +1,11 @@
 // pages/Grading.jsx — Pre-grade a card from phone photos (/grading)
 //
-// One card at a time, front then back:
+// Start by picking the card (search, or the list of cards you have 2 copies
+// of that haven't been compared), or just check one without saying which.
+// A picked card shows its saved copies; /grading?card=<id> opens it straight
+// away (the set page links here).
+//
+// Checking a copy, front then back:
 //   1. photo         live camera (or the phone's camera app / gallery)
 //   2. corners       the card's outline as found; corners can be moved
 //   3. centering     the straightened card with its border lines; lines can
@@ -11,35 +16,42 @@
 //                    moves to other edges when the card is turned
 //   5. edges         whitening on the edges and corners, each spot shown
 //                    close up; spots that aren't whitening can be left out
-// then the result for both sides together.
+//   6. surface       a checklist ticked by eye (scratches, dents, creases...)
+// then the result for both sides together, which can be saved as a copy of
+// the card. With 2 copies saved they're compared side by side and you pick
+// which to keep; the other is marked "to sell" (grading/estimate.js).
 //
 // This is an estimate from photos, not a grade: it says the best grade the
-// centering and the edges allow. The surface comes in a later step.
+// centering, the edges and the surface allow.
 //
-// Everything is worked out on the phone. Nothing is sent anywhere unless
-// "Send for testing" is tapped: that sends the photo and what was found in it
-// to the server, for tuning the photo steps (saving copies of cards comes
-// with the compare step).
+// Everything is worked out on the phone. Only saving a copy sends anything to
+// the server (the straightened pictures and the numbers), and "Send for
+// testing" (the photo as taken, for tuning the photo steps).
 
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
+import { emptySurface, surfaceText } from '../grading/surface.js';
+import { estimateOf, VERSIONS } from '../grading/estimate.js';
 import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
 import CameraCapture from '../components/grading/CameraCapture.jsx';
 import CornerEditor from '../components/grading/CornerEditor.jsx';
 import CenteringEditor from '../components/grading/CenteringEditor.jsx';
 import EdgesReview, { EdgesCard } from '../components/grading/EdgesReview.jsx';
+import SurfaceChecklist from '../components/grading/SurfaceChecklist.jsx';
+import CardPicker from '../components/grading/CardPicker.jsx';
+import { CardView, CompareView, CardHeader, candidatesOf } from '../components/grading/CardCopies.jsx';
 import { drawCanvas, imageCanvas, useCanvasWidth } from '../components/grading/canvasTools.js';
 
 const centering = analyzer('centering');
 const NAMES = { front: 'front', back: 'back' };
 
 export default function Grading() {
-  const [step, setStep] = useState('home');      // home | capture | working | corners | centering | turned | edges | result
+  const [step, setStep] = useState('home');      // home | card | compare | capture | working | corners | centering | turned | edges | surface | result
   const [side, setSide] = useState('front');
   const [busyText, setBusyText] = useState('');
   const [error, setError] = useState('');
@@ -48,6 +60,16 @@ export default function Grading() {
   // Test photos being sent / sent (an upload can take a minute over a slow
   // link, so it carries on while the next steps are done).
   const [uploads, setUploads] = useState([]);
+  // The card picked (if any): { card, copies } from the server, which slot
+  // ('regular' or 'reverse'), a message to show on it, and the copy saved
+  // from the result on screen.
+  const [cardData, setCardData] = useState(null);
+  const [slot, setSlot] = useState('regular');
+  const [notice, setNotice] = useState('');
+  const [savedCopy, setSavedCopy] = useState(null);
+  const [params, setParams] = useSearchParams();
+  // the address follows the card on screen, so a reload opens it again
+  const showCardInAddress = (id, which) => setParams(id ? { card: String(id), ...(which === 'reverse' ? { slot: which } : {}) } : {}, { replace: true });
   const settings = useRef(mergeSettings(labOverrides())).current;
   const usingLab = Object.keys(labOverrides()).length > 0;
   const bitmapRef = useRef(null);
@@ -55,6 +77,11 @@ export default function Grading() {
   // OpenCV is ~10 MB: start loading it while the photo is being lined up.
   useEffect(() => { warmUp().catch(() => {}); }, []);
   useEffect(() => () => { bitmapRef.current?.close?.(); }, []);
+  // /grading?card=123 (from the set page) opens that card
+  useEffect(() => {
+    const id = parseInt(params.get('card'));
+    if (id) openCard(id, params.get('slot') === 'reverse' ? 'reverse' : 'regular');
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   function freeBitmap() {
     bitmapRef.current?.close?.();
@@ -78,10 +105,95 @@ export default function Grading() {
     freeBitmap();
     setWork(null);
     setDone({});
+    setSavedCopy(null);
     setSide('front');
     setError('');
     setStep('capture');
   }
+
+  // ── The card picked, its saved copies ──
+  const openCard = (id, which = 'regular') => busy('Loading the card…', async () => {
+    const data = await api.grading.card(id);
+    setCardData(data);
+    setSlot(which === 'reverse' && data.card.has_reverse ? 'reverse' : 'regular');
+    showCardInAddress(id, which);
+    setNotice('');
+    setStep('card');
+  });
+
+  const copyName = (copy) => copy.label || `Copy ${cardData.copies.filter(c => c.slot === copy.slot).findIndex(c => c.id === copy.id) + 1}`;
+
+  const keepCopy = (copy, other) => busy('Saving your choice…', async () => {
+    const { copies } = await api.grading.keepCopy(copy.id);
+    setCardData(d => ({ ...d, copies }));
+    setNotice(`Keeping ${copyName(copy)}. ${copyName(other)} is marked to sell: the set page shows "1 to sell" until you untick the second box.`);
+    setStep('card');
+  });
+
+  const deleteCopy = (copy) => {
+    if (!window.confirm(`Remove ${copyName(copy)} and its pictures?`)) return;
+    busy('Removing…', async () => {
+      await api.grading.deleteCopy(copy.id);
+      setCardData(d => ({ ...d, copies: d.copies.filter(c => c.id !== copy.id) }));
+      setNotice('');
+      setStep('card');
+    });
+  };
+
+  const changeCopy = (copy, changes) => busy('Saving…', async () => {
+    const { copy: updated } = await api.grading.updateCopy(copy.id, changes);
+    setCardData(d => ({ ...d, copies: d.copies.map(c => (c.id === updated.id ? updated : c)) }));
+    setStep('card');
+  });
+
+  const renameCopy = (copy) => {
+    const label = window.prompt('A name for this copy (e.g. "binder" or "top loader"):', copy.label || '');
+    if (label !== null) changeCopy(copy, { label });
+  };
+
+  // Saves the result on screen as a copy of the picked card: the numbers,
+  // and each side's straightened picture (with the bit of background round it
+  // the edges check used) plus a small one for lists.
+  const saveCopy = (label) => busy('Saving the copy…', async () => {
+    const sides = sidesOf(done);
+    const est = estimateOf(sides, settings);
+    const pictures = {};
+    const details = {};
+    for (const s of ['front', 'back']) {
+      const d = done[s];
+      if (!d) continue;
+      pictures[s] = await jpegOf(d.edges?.image || d.image, 0.85);
+      pictures[`${s}Thumb`] = await jpegOf(d.image, 0.8, 300);
+      details[s] = {
+        lines: d.lines, foundLines: d.foundLines, bendMm: d.bendMm,
+        detailPxPerMm: Math.round(detailOf(d.quad) * 10) / 10,
+        pictureMargin: d.edges ? d.edges.margin : 0,
+        edges: d.edges ? {
+          combined: d.edges.combined, ignored: d.edges.ignored, doubtTracks: d.edges.doubtTracks,
+          spots: d.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt }) => ({ id, track, from, to, lengthMm, depthMm, doubt })),
+        } : null,
+      };
+    }
+    const result = {
+      version: 1, appVersion: APP_VERSION, versions: VERSIONS, settings, sides, details,
+      estimate: est && { best: est.best, low: est.low, high: est.high, parts: est.parts.map(p => ({ id: p.id, cap: p.cap.cap, low: p.cap.low, high: p.cap.high, why: p.why })) },
+    };
+    const cardId = cardData.card.id;
+    const { copy } = await api.grading.saveCopy({
+      cardId, slot, label, estimate: est?.best, estimateLow: est?.low, estimateHigh: est?.high, result,
+    }, pictures);
+    setSavedCopy(copy);
+    const data = await api.grading.card(cardId);
+    setCardData(data);
+    if (candidatesOf(data.copies, slot).length >= 2) {
+      setNotice('');
+      setStep('compare');
+    } else {
+      const owned = slot === 'reverse' ? data.card.reverse_owned : data.card.owned;
+      setNotice(owned >= 2 ? 'Saved. Check the other copy to compare them.' : 'Saved.');
+      setStep('card');
+    }
+  });
 
   const onPhoto = (photo, camera = {}) => busy('Finding the card…', async () => {
     freeBitmap();
@@ -153,6 +265,11 @@ export default function Grading() {
     }
   });
 
+  const toSurface = () => {
+    setWork(w => ({ ...w, surface: w.surface || emptySurface(settings) }));
+    setStep('surface');
+  };
+
   const toggleSpot = (id) => setWork(w => {
     const ignored = w.edges.ignored.includes(id) ? w.edges.ignored.filter(x => x !== id) : [...w.edges.ignored, id];
     return { ...w, edges: { ...w.edges, ignored } };
@@ -214,15 +331,41 @@ export default function Grading() {
     <div style={{ maxWidth: 640, margin: '0 auto', display: 'grid', gap: 'var(--space-4)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: '1.4rem', margin: 0 }}>Grading</h1>
-        {step !== 'home' && step !== 'result' && <span style={{ color: 'var(--text-secondary)' }}>{side === 'front' ? 'Front' : 'Back'} of the card</span>}
+        {CHECKING.includes(step) && <span style={{ color: 'var(--text-secondary)' }}>{side === 'front' ? 'Front' : 'Back'} of the card</span>}
         <span style={{ flex: 1 }} />
-        {step !== 'home' && <button className="btn btn-ghost btn-sm" onClick={() => { freeBitmap(); setWork(null); setStep('home'); }}>Start over</button>}
+        {step !== 'home' && step !== 'card' && step !== 'working' && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { freeBitmap(); setWork(null); setStep(cardData ? 'card' : 'home'); }}>
+            {cardData ? 'Back to the card' : 'Start over'}
+          </button>
+        )}
       </div>
+      {cardData && (CHECKING.includes(step) || step === 'result') && (
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: 'calc(-1 * var(--space-2))' }}>
+          Checking: <b>{cardData.card.name}</b> · {cardData.card.set_name} · {cardData.card.card_number}
+          {slot === 'reverse' ? ' (reverse slot)' : ''}
+        </div>
+      )}
       {usingLab && <p style={{ margin: 0, color: 'var(--warning)', fontSize: '0.85rem' }}>Using settings changed on the tuning page.</p>}
       {error && <p style={{ margin: 0, color: 'var(--danger)' }}>{error}</p>}
       <UploadStatus uploads={uploads} />
 
-      {step === 'home' && <Home onStart={start} />}
+      {step === 'home' && <Home onStart={() => { setCardData(null); showCardInAddress(null); start(); }} onPick={(card, s) => openCard(card.id, s)} />}
+
+      {step === 'card' && cardData && (
+        <CardView data={cardData} slot={slot} settings={settings} notice={notice}
+          onSlot={(s) => { setSlot(s); setNotice(''); showCardInAddress(cardData.card.id, s); }}
+          onCheck={start}
+          onCompare={() => { setNotice(''); setStep('compare'); }}
+          onDelete={deleteCopy}
+          onStatus={(copy, status) => changeCopy(copy, { status })}
+          onLabel={renameCopy}
+          onBack={() => { setCardData(null); showCardInAddress(null); setStep('home'); }} />
+      )}
+
+      {step === 'compare' && cardData && (
+        <CompareView key={cardData.copies.length} data={cardData} slot={slot} settings={settings}
+          onKeep={keepCopy} onBack={() => setStep('card')} />
+      )}
 
       {step === 'capture' && (
         <>
@@ -305,7 +448,7 @@ export default function Grading() {
           )}
           <EdgesReview edges={work.edges} onToggle={toggleSpot} />
           <div style={rowStyle}>
-            <button className="btn btn-primary" onClick={finishSide}>Done with the {NAMES[side]}</button>
+            <button className="btn btn-primary" onClick={toSurface}>Next: surface</button>
             <button className="btn btn-ghost" onClick={() => setStep('turned')}>
               {work.edges.combined ? 'Retake the sideways photo' : 'Add a sideways photo'}
             </button>
@@ -314,21 +457,45 @@ export default function Grading() {
         </section>
       )}
 
+      {step === 'surface' && work && (
+        <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+          <p style={{ margin: 0 }}>
+            <b>Surface:</b> hold the {NAMES[side]} of the card under a light and tilt it slowly. Tick anything
+            you can see; leave it on None if it looks clean. (A phone photo can't show these reliably, so this part is by eye.)
+          </p>
+          <SurfaceChecklist value={work.surface} onChange={surface => setWork(w => ({ ...w, surface }))} settings={settings} />
+          <div style={rowStyle}>
+            <button className="btn btn-primary" onClick={finishSide}>Done with the {NAMES[side]}</button>
+            <button className="btn btn-ghost" onClick={() => setStep('edges')}>Back to the edges</button>
+          </div>
+        </section>
+      )}
+
       {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={start}
+        save={<SavePanel cardData={cardData} slot={slot} savedCopy={savedCopy} onSave={saveCopy}
+          onPickCard={(card, s) => busy('Loading the card…', async () => {
+            setCardData(await api.grading.card(card.id));
+            setSlot(s);
+            showCardInAddress(card.id, s);
+            setStep('result');
+          })}
+          onSeeCard={() => setStep(candidatesOf(cardData.copies, slot).length >= 2 ? 'compare' : 'card')} />}
         sendButton={s => <SendTest upload={uploadOf(done[s].photo, 'result')} onSend={() => sendTest({ ...done[s], side: s }, 'result')} hasPhoto={!!done[s].photo} small />} />}
     </div>
   );
 }
 
-function Home({ onStart }) {
+function Home({ onStart, onPick }) {
   return (
     <>
       <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
         <p style={{ margin: 0 }}>
-          Photograph a card's front and back to check its centering (how even the borders are) and
-          its edges and corners (whitening). The result is the best grade those allow: an estimate, not a real grade.
+          Photograph a card's front and back to check its centering (how even the borders are), its
+          edges and corners (whitening) and its surface. The result is the best grade those allow: an
+          estimate, not a real grade. Got 2 copies? Check and save both, and it tells you which to keep.
         </p>
-        <button className="btn btn-primary" style={{ minHeight: 48 }} onClick={onStart}>Check a card</button>
+        <CardPicker onPick={onPick} />
+        <button className="btn btn-ghost" onClick={onStart}>Just check a card (save it to a card later)</button>
       </section>
       <section className="panel">
         <h2 style={{ fontSize: '1rem', margin: '0 0 var(--space-2)' }}>For a good photo</h2>
@@ -356,18 +523,14 @@ function Home({ onStart }) {
   );
 }
 
-function Result({ done, settings, onRedo, onAnother, sendButton }) {
-  const cCap = centering.cap({ front: done.front?.measured, back: done.back?.measured }, settings);
-  const eCap = edgesCap(done.front?.edges?.measured, done.back?.edges?.measured, settings);
-  const parts = [
-    cCap && { name: 'centering', cap: cCap, floor: settings.centering.floor, why: cCap.limitedBy },
-    eCap && { name: 'edges and corners', cap: eCap, floor: settings.edges.floor, why: eCap.limitedBy },
-  ].filter(Boolean);
-  const best = parts.length ? Math.min(...parts.map(p => p.cap.cap)) : null;
-  const low = parts.length ? Math.min(...parts.map(p => p.cap.low)) : null;
-  const high = parts.length ? Math.min(...parts.map(p => p.cap.high)) : null;
-  const limiting = parts.filter(p => p.cap.cap === best);
-  const atFloor = limiting.some(p => p.cap.cap === p.floor);
+function Result({ done, settings, onRedo, onAnother, sendButton, save }) {
+  const est = estimateOf(sidesOf(done), settings);
+  const parts = est?.parts || [];
+  const best = est ? est.best : null;
+  const low = est?.low, high = est?.high;
+  const limiting = est?.limiting || [];
+  const atFloor = est?.atFloor;
+  const eCap = est?.parts.find(p => p.id === 'edges')?.cap;
   return (
     <>
       <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
@@ -376,7 +539,7 @@ function Result({ done, settings, onRedo, onAnother, sendButton }) {
           {best === null ? '—' : atFloor ? `${best} or lower` : best}
         </div>
         {low !== high && <div style={{ color: 'var(--text-secondary)' }}>Close call: could be {low}–{high}.</div>}
-        {limiting.length > 0 && (
+        {limiting.length > 0 && best < 10 && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
             Limited by the {limiting.map(p => `${p.name} (${p.why})`).join(' and the ')}.
           </div>
@@ -399,8 +562,8 @@ function Result({ done, settings, onRedo, onAnother, sendButton }) {
           </div>
         )}
         {!done.back && <div style={{ color: 'var(--warning)', fontSize: '0.9rem' }}>Front only: the back can lower this.</div>}
-        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>The surface (scratches, dents, print lines) isn't checked yet.</div>
       </section>
+      {save}
       <div style={{ display: 'grid', gap: 'var(--space-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
         {['front', 'back'].map(s => done[s] && (
           <section key={s} className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
@@ -421,6 +584,7 @@ function Result({ done, settings, onRedo, onAnother, sendButton }) {
                 {!done[s].edges.combined && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Edges checked from one photo.</div>}
               </>
             )}
+            {done[s].surface && <div style={{ fontSize: '0.9rem' }}>Surface: {surfaceText(done[s].surface, settings) || 'nothing ticked'}.</div>}
             <button className="btn btn-ghost btn-sm" onClick={() => onRedo(s)}>Redo the {s}</button>
             {sendButton(s)}
           </section>
@@ -548,5 +712,61 @@ function guessQuad(bitmap) {
   return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
 }
 
+// Saving the result as a copy of a card: of the card picked, or pick one here.
+function SavePanel({ cardData, slot, savedCopy, onSave, onPickCard, onSeeCard }) {
+  const [label, setLabel] = useState('');
+  const [picking, setPicking] = useState(false);
+  if (savedCopy) {
+    return (
+      <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
+        <div style={{ color: 'var(--success)' }}>✓ Saved as a copy of {cardData?.card.name}.</div>
+        {cardData && <button className="btn btn-primary" onClick={onSeeCard}>See its copies</button>}
+      </section>
+    );
+  }
+  return (
+    <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      {cardData && !picking ? (
+        <>
+          <CardHeader card={cardData.card} slot={slot} />
+          <input className="input" value={label} onChange={e => setLabel(e.target.value)} maxLength={80}
+            placeholder="A name for this copy (optional): binder, top loader…" />
+          <div style={rowStyle}>
+            <button className="btn btn-primary" style={{ minHeight: 44 }} onClick={() => onSave(label)}>Save this copy</button>
+            <button className="btn btn-ghost" onClick={() => setPicking(true)}>It's a different card</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div><b>Save this copy?</b> Which card is it:</div>
+          <CardPicker showQueue={false} onPick={(card, s) => { setPicking(false); onPickCard(card, s); }} />
+        </>
+      )}
+    </section>
+  );
+}
+
+// The sides of a finished check, summed up the way estimates and saved
+// copies need them (grading/estimate.js).
+function sidesOf(done) {
+  const out = {};
+  for (const s of ['front', 'back']) {
+    if (!done[s]) continue;
+    out[s] = { centering: done[s].measured, whitening: done[s].edges?.measured || null, surface: done[s].surface || null };
+  }
+  return out;
+}
+
+// A straightened card side (ImageData) as a JPEG, optionally made smaller.
+async function jpegOf(image, quality, width = image.width) {
+  const height = Math.round(image.height * width / image.width);
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(imageCanvas(image), 0, 0, width, height);
+  return canvas.convertToBlob({ type: 'image/jpeg', quality });
+}
+
+const CHECKING = ['capture', 'corners', 'centering', 'turned', 'edges', 'surface'];
 const rowStyle = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' };
 const cellKey = { color: 'var(--text-muted)', paddingRight: 12, whiteSpace: 'nowrap' };
