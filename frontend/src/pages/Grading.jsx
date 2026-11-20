@@ -37,7 +37,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
-import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { emptySurface, surfaceText } from '../grading/surface.js';
 import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
@@ -188,7 +188,7 @@ export default function Grading() {
         edges: d.edges ? {
           combined: d.edges.combined, photos: d.edges.photos || (d.edges.combined ? 2 : 1),
           ignored: d.edges.ignored, doubtTracks: d.edges.doubtTracks,
-          spots: d.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt }) => ({ id, track, from, to, lengthMm, depthMm, doubt })),
+          spots: d.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt, maybe, votes, photos }) => ({ id, track, from, to, lengthMm, depthMm, doubt, ...(maybe ? { maybe, votes, photos } : {}) })),
         } : null,
       };
     }
@@ -254,13 +254,16 @@ export default function Grading() {
 
   // extras: the turned photos so far ({ image, scan, photo, label, ... }).
   const showEdges = (scan, extras = []) => {
-    const spots = findSpots(scan, settings);
+    const found = findSpots(scan, settings);
+    // seen in some of the photos only: listed, not counted until "Count it"
+    const maybe = maybeSpots(scan, found.filter(sp => !sp.doubt), settings);
+    const spots = [...found, ...maybe];
     const doubtTracks = doubtTracksOf(scan, settings);
     setWork(w => ({
       ...w,
       extras,
       edges: {
-        scan, spots, ignored: [], doubtTracks, combined: !!scan.combined, photos: 1 + extras.length,
+        scan, spots, ignored: maybe.map(sp => sp.id), doubtTracks, combined: !!scan.combined, photos: 1 + extras.length,
         margin: w.margin, image: w.imageM, extras,
       },
     }));
@@ -279,6 +282,11 @@ export default function Grading() {
       let image = await straighten(bitmap, found.quad, { margin: work.margin });
       // straightened upright, the card may have come out upside down
       if (sameWayUp(work.imageM, image, work.margin) < 0) image = turnImage(image);
+      // an out-of-focus photo, or one whose outline was found wrong, would
+      // hide whitening that's really there
+      if (matchScore(work.imageM, image, work.margin) < settings.edges.minMatch) {
+        throw new Error('This photo doesn\'t line up with the first one: it may be out of focus, or the card wasn\'t found right. Take it again.');
+      }
       const scan = scanEdges(image, work.margin, settings);
       const n = (work.extras?.length || 0) + 2;
       const extras = [...(work.extras || []), {
@@ -632,32 +640,39 @@ function Result({ done, settings, onRedo, onAnother, sendButton, save }) {
   );
 }
 
-// Whitening still counted after 2 or 3 photos: worth another, turned photo.
+// Whitening still counted after 2 or 3 photos (or, after 3, spots seen in
+// only some of them): worth another, turned photo.
 function countedSpots(edges) {
   return edges.spots.filter(sp => !sp.doubt && !edges.ignored.includes(sp.id)).length;
 }
+function maybeLeft(edges) {
+  return edges.spots.filter(sp => sp.maybe && edges.ignored.includes(sp.id)).length;
+}
 function wantsMorePhotos(edges) {
   const photos = edges.photos || 1;
-  return photos >= 2 && photos < MAX_PHOTOS && countedSpots(edges) > 0;
+  return photos >= 2 && photos < MAX_PHOTOS && (countedSpots(edges) > 0 || maybeLeft(edges) > 0);
 }
 
 function MorePhotos({ edges, onMore }) {
   const photos = edges.photos || 1;
-  if (photos < 2 || !countedSpots(edges)) return null;
+  const counted = countedSpots(edges), maybe = maybeLeft(edges);
+  if (photos < 2 || (!counted && !maybe)) return null;
+  const note = { margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' };
   if (photos >= MAX_PHOTOS) {
     return (
-      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-        It's in all {photos} photos, so it's most likely real. If you still can't see it on the card, tap "Not whitening".
-      </p>
+      <>
+        {counted > 0 && <p style={note}>What's counted is in at least 3 of the 4 photos, so it's most likely real. If you still can't see it on the card, tap "Not whitening".</p>}
+        {maybe > 0 && <p style={note}>Spots seen in only some of the photos aren't counted. If you can see one on the card, tap "Count it".</p>}
+      </>
     );
   }
   const n = photos + 1;
+  const why = counted
+    ? `Whitening was found in ${photos === 2 ? 'both' : `all ${photos}`} photos. If you can't see it on the card, it may be the light`
+    : `Some spots showed in only some of the ${photos} photos (not counted)`;
   return (
     <div style={{ display: 'grid', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', borderRadius: 8, background: 'var(--bg-elevated)' }}>
-      <span>
-        Whitening was found in {photos === 2 ? 'both' : `all ${photos}`} photos. If you can't see it on the card, it may be the
-        light: take photo {n} with the card {TURNS[n].label} to double-check.
-      </span>
+      <span>{why}: take photo {n} with the card {TURNS[n].label} to double-check.</span>
       <div><button className="btn btn-primary" onClick={onMore}>Double-check: photo {n}</button></div>
     </div>
   );

@@ -25,8 +25,13 @@
 // same all round can still catch one edge in both photos, so when whitening
 // is left after two, the Grading page asks for a third (turned the other
 // way) and then a fourth (upside down): whitening has to be in every photo
-// to count. With one photo only, an edge lit along much of its length is
-// marked "may be glints" and not counted.
+// to count, except that with 4 photos, 3 are enough (one photo out of focus,
+// or with the light just wrong for a tiny fleck, shouldn't wipe out real
+// wear; a glint in 3 of 4 turns is very unlikely). With one photo only, an
+// edge lit along much of its length is marked "may be glints" and not
+// counted. Spots seen in at least 2 photos but not enough to count are
+// listed as "maybe" (maybeSpots): a tiny fleck can catch the light like a
+// glint does, so the user decides.
 //
 // Spots: stretches of track whitened at least minDepthPx deep. The limit
 // they set on the grade is a rough guide (the table in config.js), not a
@@ -78,7 +83,9 @@ export function trackGeometry(W, H, R) {
 // with `margin` pixels of photo all round. Answers
 //   { W, H, ppm, R, tracks: { key: { depth: Float32Array (px, NaN where it
 //     couldn't be read), edge: Float32Array (where the card starts, px from
-//     the expected edge, + is inwards) } }, lit: { key: share }, unread }
+//     the expected edge, + is inwards) } }, lit: { key: share }, unread,
+//     guessed (share of the outline where the card's edge didn't stand out
+//     from the background and the straightened outline was used instead) }
 export function scanEdges(image, margin, settings) {
   const s = settings.edges;
   const W = image.width - 2 * margin, H = image.height - 2 * margin;
@@ -107,12 +114,13 @@ export function scanEdges(image, margin, settings) {
   };
 
   const tracks = {}, lit = {};
-  let unread = 0, total = 0;
+  let unread = 0, total = 0, guessed = 0;
   const rgb = [0, 0, 0];
   for (const key of TRACKS) {
     const n = geo.n[key];
     const prof = new Float32Array(n * len * 3);
     const e0s = new Int32Array(n).fill(-1);
+    const guess = new Uint8Array(n);
     const bgs = new Float32Array(n * 3), refs = new Float32Array(n * 3);
     // 1. The profiles, where each starts, and the raw border colour.
     for (let i = 0; i < n; i++) {
@@ -128,7 +136,13 @@ export function scanEdges(image, margin, settings) {
       for (let k = bgN; k < out * 2 && k + 2 + refTo < len; k++) {
         if (far(k) && far(k + 1) && far(k + 2)) { e0s[i] = k; break; }
       }
-      if (e0s[i] >= 0) refs.set(channelMedian(prof, i * len, e0s[i] + refFrom, e0s[i] + refTo), i * 3);
+      // A border about the colour of the background (a black border on a
+      // dark mat) doesn't stand out, and neither does a fleck of whitening
+      // only a pixel or two deep before the black starts again. The
+      // straightened outline is right to a pixel or two along the edges, so
+      // the card is taken to start there.
+      if (e0s[i] < 0) { e0s[i] = out; guess[i] = 1; }
+      refs.set(channelMedian(prof, i * len, e0s[i] + refFrom, e0s[i] + refTo), i * 3);
     }
     // 2. The border colour smoothed along the track (a running median), so a
     // worn stretch, whose own "border" reading may be pale, takes its
@@ -159,18 +173,28 @@ export function scanEdges(image, margin, settings) {
       if ((bg[0] + bg[1] + bg[2]) / 3 > s.maxBackground) { unread++; continue; }
       const half = 0.5 * colourDistance(ref, bg);
       let e = e0s[i];
-      for (let k = Math.max(1, e0s[i] - 4); k <= e0s[i] + 6; k++) {
-        if (colourDistanceAt(prof, (i * len + k) * 3, bg) >= half) { e = k; break; }
+      if (guess[i]) {
+        // from just outside the outline, in case it is a pixel off (the
+        // background is dark, so it never reads as whitening itself)
+        e = Math.max(1, out - 2);
+        guessed++;
+      } else {
+        for (let k = Math.max(1, e0s[i] - 4); k <= e0s[i] + 6; k++) {
+          if (colourDistanceAt(prof, (i * len + k) * 3, bg) >= half) { e = k; break; }
+        }
       }
       edge[i] = e - out;
       const wx = 255 - ref[0], wy = 255 - ref[1], wz = 255 - ref[2];
       const den = wx * wx + wy * wy + wz * wz;
+      // On a dark border a fleck of white only a few pixels across is
+      // blurred to grey by the photo, so less of the way to white counts.
+      const minWhite = (ref[0] + ref[1] + ref[2]) / 3 < s.darkBorder ? s.minWhiteDark : s.minWhite;
       let count = 0, last = -1, sumL = 0;
       for (let k = e; k < e + maxDepth && k < len; k++) {
         const j = (i * len + k) * 3;
         const dr = prof[j] - ref[0], dg = prof[j + 1] - ref[1], db = prof[j + 2] - ref[2];
         const towardWhite = den > 0 ? (dr * wx + dg * wy + db * wz) / den : 0;
-        if (towardWhite > s.minWhite && (dr + dg + db) / 3 > s.minLighter) {
+        if (towardWhite > minWhite && (dr + dg + db) / 3 > s.minLighter) {
           count++; last = k; sumL += (prof[j] + prof[j + 1] + prof[j + 2]) / 3;
         }
       }
@@ -192,7 +216,7 @@ export function scanEdges(image, margin, settings) {
   // Edges lit along much of their length (glints, if there is no second
   // photo to tell).
   for (const key of ['top', 'right', 'bottom', 'left']) lit[key] = round(shareAtLeast(tracks[key].depth, 1), 2);
-  return { W, H, ppm, R, tracks, lit, unread: total ? round(unread / total, 3) : 1 };
+  return { W, H, ppm, R, tracks, lit, unread: total ? round(unread / total, 3) : 1, guessed: total ? round(guessed / total, 3) : 0 };
 }
 
 // The second photo (card turned a quarter turn, then straightened, so it may
@@ -210,6 +234,24 @@ export function sameWayUp(imageA, imageB, margin) {
   return same <= turned ? 1 : -1;
 }
 
+// How well a turned photo (already the same way up) matches the first: the
+// correlation of small grey copies of the card's middle, -1..1. Photos of
+// the same card came out 0.5-0.95 (holo fronts lowest, the light moves on
+// the foil); an out-of-focus photo whose outline was found wrong 0.37.
+export function matchScore(imageA, imageB, margin) {
+  const a = thumb(imageA, margin), b = thumb(imageB, margin);
+  const n = a.length;
+  let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+  ma /= n; mb /= n;
+  let ab = 0, aa = 0, bb = 0;
+  for (let i = 0; i < n; i++) {
+    const x = a[i] - ma, y = b[i] - mb;
+    ab += x * y; aa += x * x; bb += y * y;
+  }
+  return aa && bb ? round(ab / Math.sqrt(aa * bb), 3) : 0;
+}
+
 // ImageData turned half a turn.
 export function turnImage(image) {
   const { width, height, data } = image;
@@ -223,8 +265,9 @@ export function turnImage(image) {
 }
 
 // Scans of the same side (all but the first already lined up with it): at
-// each point the smallest depth, after letting each spread alignPx either way
-// (the outlines can differ by a pixel or two). combineScans([a, b, c], settings),
+// each point the smallest depth (with 4 or more photos, the depth all but one
+// of them reach), after letting each spread alignPx either way (the outlines
+// can differ by a pixel or two). combineScans([a, b, c], settings),
 // or combineScans(a, b, settings) for two. Answers a scan with combined: true
 // and photos: how many went into it.
 export function combineScans(a, b, settings) {
@@ -232,26 +275,58 @@ export function combineScans(a, b, settings) {
   if (Array.isArray(a)) settings = b;
   const k = settings.edges.alignPx;
   const first = scans[0];
-  const tracks = {};
+  const tracks = {}, some = {}, spreads = {};
   for (const key of TRACKS) {
     const spreadOut = scans.map(sc => spread(sc.tracks[key].depth, k));
+    spreads[key] = spreadOut;
     const n = spreadOut[0].length;
     const depth = new Float32Array(n);
+    const second = new Float32Array(n).fill(NaN);     // reached by at least 2 photos
+    const vals = [];
     for (let i = 0; i < n; i++) {
-      let v = NaN;
-      for (const d of spreadOut) {
-        const x = d[i];
-        if (!Number.isNaN(x)) v = Number.isNaN(v) ? x : Math.min(v, x);
-      }
-      depth[i] = v;
+      vals.length = 0;
+      for (const d of spreadOut) if (!Number.isNaN(d[i])) vals.push(d[i]);
+      if (!vals.length) { depth[i] = NaN; continue; }
+      vals.sort((x, y) => x - y);
+      // all of them, or all but one from 4 up: the (need)th largest
+      const need = vals.length >= 4 ? vals.length - 1 : vals.length;
+      depth[i] = vals[vals.length - need];
+      if (vals.length >= 2) second[i] = vals[vals.length - 2];
     }
     tracks[key] = { depth, edge: first.tracks[key].edge };
+    some[key] = { depth: second, edge: first.tracks[key].edge };
   }
   // Glints are gone now, so nothing is in doubt: whitening left along an
   // edge was there in every photo, with the light on different edges.
   const lit = {};
   for (const key of Object.keys(first.lit)) lit[key] = 0;
-  return { ...first, tracks, lit, combined: true, photos: scans.length };
+  return {
+    ...first, tracks, lit, combined: true, photos: scans.length,
+    // with 3 or more photos: what at least 2 of them show, for maybeSpots
+    some: scans.length >= 3 ? some : null, spreads,
+  };
+}
+
+// Spots seen in at least 2 of the photos but not counted (not in all of
+// them, or 3 of 4), away from the counted spots: [{ ...spot, maybe: true,
+// votes, photos }]. The page lists them, not counted, with "Count it".
+export function maybeSpots(scan, counted, settings) {
+  if (!scan.some) return [];
+  const lit = {};
+  for (const key of Object.keys(scan.lit)) lit[key] = 0;
+  const slack = Math.round(settings.edges.mergeMm * scan.ppm);
+  const minDepth = settings.edges.minDepthPx;
+  return findSpots({ ...scan, tracks: scan.some, lit }, settings)
+    .filter(sp => !counted.some(c => c.track === sp.track && sp.from <= c.to + slack && sp.to >= c.from - slack))
+    .map(sp => {
+      let votes = 0;
+      for (const d of scan.spreads[sp.track]) {
+        let deepest = 0;
+        for (let i = sp.from; i <= sp.to; i++) if (d[i] > deepest) deepest = d[i];
+        if (deepest >= minDepth) votes++;
+      }
+      return { ...sp, id: `maybe-${sp.id}`, maybe: true, votes, photos: scan.photos };
+    });
 }
 
 // The whitened stretches. Answers [{ id, track, from, to (steps), lengthMm,

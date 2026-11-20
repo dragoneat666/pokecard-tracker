@@ -136,6 +136,11 @@ export const GRADING_DEFAULTS = {
     // about 0.4.)
     minWhite: 0.5,
     minLighter: 20,
+    // On dark borders (border colour darker than darkBorder, 0-255) a tiny
+    // fleck of whitening is blurred to grey in a phone photo: a 0.2 mm fleck
+    // on a black border came out 0.35-0.55 of the way to white.
+    darkBorder: 60,
+    minWhiteDark: 0.3,
     // ...and the whitened stretch must be at least this much brighter than
     // the border just past its inner end (wear stops sharply; the sheen on a
     // silver border fades gradually and doesn't count).
@@ -153,6 +158,10 @@ export const GRADING_DEFAULTS = {
     glareWarnShare: 0.002,
     // The two photos' outlines may differ by this many pixels along an edge.
     alignPx: 3,
+    // A turned photo matching the first less than this (edges.matchScore;
+    // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
+    // turned away: "take it again".
+    minMatch: 0.42,
     // With one photo, an edge with "whitening" along more than this share of
     // its length is probably glinting in the light: it and its corners are
     // "in doubt" and not counted. (On phone photos of pack-fresh backs,

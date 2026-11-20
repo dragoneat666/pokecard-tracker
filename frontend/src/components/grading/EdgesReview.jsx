@@ -4,7 +4,8 @@
 // edge (numbered), edges that couldn't be checked marked in amber, and a
 // close-up of each spot from every photo so it can be judged by eye. A spot
 // that isn't whitening (dirt, a glint, a printed mark) can be marked "Not
-// whitening" and stops counting.
+// whitening" and stops counting. Spots seen in only some of the photos
+// ("maybe") start out not counted, with "Count it".
 
 import { useEffect, useRef } from 'react';
 import { trackGeometry, TRACK_NAMES, TRACKS } from '../../grading/edges.js';
@@ -43,6 +44,7 @@ export default function EdgesReview({ edges, onToggle }) {
                 <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
                   <b>{n + 1}.</b>
                   <span>{cap(TRACK_NAMES[sp.track])}: {sp.lengthMm} mm long, up to {sp.depthMm} mm deep</span>
+                  {sp.maybe && <span style={{ color: 'var(--warning)' }}>seen in {sp.votes} of {sp.photos} photos</span>}
                   {skip.has(sp.id) && <span style={{ color: 'var(--text-muted)' }}>(not counted)</span>}
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -51,7 +53,7 @@ export default function EdgesReview({ edges, onToggle }) {
                     <SpotCrop key={i} image={x.image} margin={margin} scan={scan} spot={sp} label={`photo ${i + 2} (${x.label})`} />
                   ))}
                   <button className="btn btn-ghost btn-sm" onClick={() => onToggle(sp.id)}>
-                    {skip.has(sp.id) ? 'Count it again' : 'Not whitening'}
+                    {skip.has(sp.id) ? (sp.maybe ? 'Count it' : 'Count it again') : 'Not whitening'}
                   </button>
                 </div>
               </div>
