@@ -3,6 +3,7 @@
   "appName": "PokeCard Tracker",
   "webDir": "dist",
   "server": {
+    "androidScheme": "http",
     "cleartext": true
   },
   "android": {
