@@ -330,6 +330,9 @@ export function centeringCap(front, back, settings) {
       low: capFor(m.worst + table.closeCall, side, table),
       worst: m.worst,
       direction: m.worstDirection,
+      // the same text the side shows (worst is rounded to 0.1, so ratioText
+      // of it can come out a point different: 55.5 -> 56/44 for a 55/45)
+      text: (m.worstDirection === 'top/bottom' ? m.topBottomText : m.leftRightText) || ratioText(m.worst),
     };
   }
   const list = Object.values(per);
@@ -339,7 +342,7 @@ export function centeringCap(front, back, settings) {
   const low = Math.min(...list.map(p => p.low));
   // Which side limits it, in words.
   const limiting = Object.entries(per).filter(([, p]) => p.cap === cap)
-    .map(([side, p]) => `${side} ${ratioText(p.worst)} ${p.direction}`);
+    .map(([side, p]) => `${side} ${p.text} ${p.direction}`);
   const floorText = cap === table.floor ? `${cap} or lower` : String(cap);
   return {
     cap, low, high, ...per,

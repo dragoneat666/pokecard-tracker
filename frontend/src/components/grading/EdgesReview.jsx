@@ -2,7 +2,7 @@
 //
 // The straightened card with every whitened spot marked just outside its
 // edge (numbered), edges that couldn't be checked marked in amber, and a
-// close-up of each spot from both photos so it can be judged by eye. A spot
+// close-up of each spot from every photo so it can be judged by eye. A spot
 // that isn't whitening (dirt, a glint, a printed mark) can be marked "Not
 // whitening" and stops counting.
 
@@ -21,6 +21,8 @@ export function orderedSpots(spots) {
 
 export default function EdgesReview({ edges, onToggle }) {
   const { scan, spots, ignored, doubtTracks, combined, margin, image, imageB } = edges;
+  // the turned photos (the tuning page passes one as imageB)
+  const extras = edges.extras || (imageB ? [{ image: imageB, label: 'sideways' }] : []);
   const list = orderedSpots(spots).filter(sp => !sp.doubt);
   const skip = new Set(ignored);
   return (
@@ -45,7 +47,9 @@ export default function EdgesReview({ edges, onToggle }) {
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
                   <SpotCrop image={image} margin={margin} scan={scan} spot={sp} label={combined ? 'photo 1' : null} />
-                  {imageB && <SpotCrop image={imageB} margin={margin} scan={scan} spot={sp} label="photo 2 (sideways)" />}
+                  {extras.map((x, i) => x.image && (
+                    <SpotCrop key={i} image={x.image} margin={margin} scan={scan} spot={sp} label={`photo ${i + 2} (${x.label})`} />
+                  ))}
                   <button className="btn btn-ghost btn-sm" onClick={() => onToggle(sp.id)}>
                     {skip.has(sp.id) ? 'Count it again' : 'Not whitening'}
                   </button>
@@ -58,15 +62,17 @@ export default function EdgesReview({ edges, onToggle }) {
   );
 }
 
-// The card with the spots marked round it. Also used small on the result page.
-export function EdgesCard({ edges, maxWidth = 360 }) {
+// The card with the spots marked round it. Also used small on the result
+// page, and for saved copies, where image is the saved picture (an <img>)
+// and marks can be turned off.
+export function EdgesCard({ edges, maxWidth = 360, marks = true }) {
   const { scan, spots, ignored, doubtTracks, margin, image } = edges;
   const [wrapRef, cssW] = useCanvasWidth();
   const ref = useRef(null);
   useEffect(() => {
     if (!cssW || !image) return;
     const w = Math.min(cssW, maxWidth), s = w / image.width, h = Math.round(image.height * s);
-    const src = imageCanvas(image);
+    const src = image.data ? imageCanvas(image) : image;
     const geo = trackGeometry(scan.W, scan.H, scan.R);
     const skip = new Set(ignored);
     const out = 0.5 * scan.ppm;                 // marks this far outside the edge
@@ -83,6 +89,7 @@ export function EdgesCard({ edges, maxWidth = 360 }) {
     drawCanvas(ref.current, w, h, (ctx) => {
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(src, 0, 0, w, h);
+      if (!marks) return;
       ctx.lineCap = 'round';
       ctx.setLineDash([4, 4]); ctx.strokeStyle = AMBER; ctx.lineWidth = 2;
       for (const key of doubtTracks) stroke(ctx, key, 0, geo.n[key] - 1);
@@ -107,7 +114,7 @@ export function EdgesCard({ edges, maxWidth = 360 }) {
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
       });
     });
-  }, [image, scan, spots, ignored, doubtTracks, margin, cssW, maxWidth]);
+  }, [image, scan, spots, ignored, doubtTracks, margin, cssW, maxWidth, marks]);
   return <div ref={wrapRef}><canvas ref={ref} style={{ display: 'block', margin: '0 auto', borderRadius: 6 }} /></div>;
 }
 

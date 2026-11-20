@@ -41,6 +41,13 @@ export function estimateOf(sides, settings) {
   };
 }
 
+// "Whitening: 3.1 mm in all, up to 0.25 mm deep (2 corners, 1 edge)."
+export function whiteningText(m) {
+  if (!m || !m.counted) return 'No whitening counted.';
+  const where = [m.corners && `${m.corners} corner${m.corners > 1 ? 's' : ''}`, m.edges && `${m.edges} edge${m.edges > 1 ? 's' : ''}`].filter(Boolean).join(', ');
+  return `Whitening: ${m.lengthMm} mm in all, up to ${m.depthMm} mm deep (${where}).`;
+}
+
 // "8", "5 or lower", with "(could be 7–8)" when it's a close call.
 export function gradeText(est, withRange = true) {
   if (!est) return '—';

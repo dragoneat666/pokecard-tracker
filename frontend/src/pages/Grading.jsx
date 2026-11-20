@@ -13,7 +13,10 @@
 //   4. turned        (can be skipped) a second photo with the card turned a
 //                    quarter turn, for the edges check: light glinting off
 //                    the card's edges looks like whitening in one photo, but
-//                    moves to other edges when the card is turned
+//                    moves to other edges when the card is turned. If
+//                    whitening is still found, a third photo (sideways the
+//                    other way) and then a fourth (upside down) are offered:
+//                    it has to be in every photo to count
 //   5. edges         whitening on the edges and corners, each spot shown
 //                    close up; spots that aren't whitening can be left out
 //   6. surface       a checklist ticked by eye (scratches, dents, creases...)
@@ -25,8 +28,10 @@
 // centering, the edges and the surface allow.
 //
 // Everything is worked out on the phone. Only saving a copy sends anything to
-// the server (the straightened pictures and the numbers), and "Send for
-// testing" (the photo as taken, for tuning the photo steps).
+// the server (the first photo of each side straightened, and the numbers:
+// the spots found, so the page can mark them on the picture, and the grade
+// with its reasons; the extra turned photos aren't kept), and "Send for
+// testing" (the photos as taken, for tuning the photo steps).
 
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -35,7 +40,7 @@ import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBe
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { emptySurface, surfaceText } from '../grading/surface.js';
-import { estimateOf, VERSIONS } from '../grading/estimate.js';
+import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
 import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
 import CameraCapture from '../components/grading/CameraCapture.jsx';
@@ -49,6 +54,18 @@ import { drawCanvas, imageCanvas, useCanvasWidth } from '../components/grading/c
 
 const centering = analyzer('centering');
 const NAMES = { front: 'front', back: 'back' };
+// The extra photos for the edges check, by photo number. A glint has to land
+// in the same place in every photo to pass for whitening, which a light
+// almost never manages once the card has been turned three ways.
+const TURNS = {
+  2: { label: 'sideways', guide: 'landscape',
+    how: 'turn the card a quarter turn where it lies, so it\'s sideways, and take another photo with the phone held the same way as before.' },
+  3: { label: 'sideways the other way', guide: 'landscape',
+    how: 'turn the card so it\'s sideways the other way (half a turn from the last photo), with the phone held the same way as before.' },
+  4: { label: 'upside down', guide: 'portrait',
+    how: 'turn the card upside down compared with the first photo, with the phone held the same way as before.' },
+};
+const MAX_PHOTOS = 4;
 
 export default function Grading() {
   const [step, setStep] = useState('home');      // home | card | compare | capture | working | corners | centering | turned | edges | surface | result
@@ -169,7 +186,8 @@ export default function Grading() {
         detailPxPerMm: Math.round(detailOf(d.quad) * 10) / 10,
         pictureMargin: d.edges ? d.edges.margin : 0,
         edges: d.edges ? {
-          combined: d.edges.combined, ignored: d.edges.ignored, doubtTracks: d.edges.doubtTracks,
+          combined: d.edges.combined, photos: d.edges.photos || (d.edges.combined ? 2 : 1),
+          ignored: d.edges.ignored, doubtTracks: d.edges.doubtTracks,
           spots: d.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt }) => ({ id, track, from, to, lengthMm, depthMm, doubt })),
         } : null,
       };
@@ -230,16 +248,21 @@ export default function Grading() {
     const margin = Math.round(settings.edges.marginMm * settings.image.pxPerMm);
     const imageM = await straighten(work.bitmap, work.quad, { margin });
     const scanA = scanEdges(imageM, margin, settings);
-    setWork(w => ({ ...w, imageM, scanA, margin, glare: glareShare(imageM, margin) }));
+    setWork(w => ({ ...w, imageM, scanA, margin, extras: [], glare: glareShare(imageM, margin) }));
     setStep('turned');
   });
 
-  const showEdges = (scan, extra = {}) => {
+  // extras: the turned photos so far ({ image, scan, photo, label, ... }).
+  const showEdges = (scan, extras = []) => {
     const spots = findSpots(scan, settings);
     const doubtTracks = doubtTracksOf(scan, settings);
     setWork(w => ({
       ...w,
-      edges: { scan, spots, ignored: [], doubtTracks, combined: !!scan.combined, margin: w.margin, image: w.imageM, imageB: null, ...extra },
+      extras,
+      edges: {
+        scan, spots, ignored: [], doubtTracks, combined: !!scan.combined, photos: 1 + extras.length,
+        margin: w.margin, image: w.imageM, extras,
+      },
     }));
     setStep('edges');
   };
@@ -253,13 +276,15 @@ export default function Grading() {
           ? 'The card runs off the edge of the sideways photo. Take it again with a gap all round the card.'
           : 'Couldn\'t find the card in the sideways photo. Take it again, or skip it.');
       }
-      let imageB = await straighten(bitmap, found.quad, { margin: work.margin });
+      let image = await straighten(bitmap, found.quad, { margin: work.margin });
       // straightened upright, the card may have come out upside down
-      if (sameWayUp(work.imageM, imageB, work.margin) < 0) imageB = turnImage(imageB);
-      const scanB = scanEdges(imageB, work.margin, settings);
-      showEdges(combineScans(work.scanA, scanB, settings), {
-        imageB, photoB: photo, cameraB: camera, photoSizeB: [bitmap.width, bitmap.height], quadB: found.quad,
-      });
+      if (sameWayUp(work.imageM, image, work.margin) < 0) image = turnImage(image);
+      const scan = scanEdges(image, work.margin, settings);
+      const n = (work.extras?.length || 0) + 2;
+      const extras = [...(work.extras || []), {
+        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad,
+      }];
+      showEdges(combineScans([work.scanA, ...extras.map(x => x.scan)], settings), extras);
     } finally {
       bitmap.close?.();
     }
@@ -278,8 +303,10 @@ export default function Grading() {
   function finishSide() {
     const measured = centering.measure({ lines: work.lines }, settings);
     const e = work.edges;
-    const edges = e && { ...e, imageB: null, measured: measureEdges(e.spots, e.ignored, e.doubtTracks) };
-    const result = { ...work, bitmap: null, scanA: null, measured, edges };
+    // the turned photos' pictures are let go (only their photos stay, for "Send for testing")
+    const extras = (e?.extras || []).map(({ image, scan, ...rest }) => rest);
+    const edges = e && { ...e, extras, measured: measureEdges(e.spots, e.ignored, e.doubtTracks) };
+    const result = { ...work, bitmap: null, scanA: null, extras: null, measured, edges };
     const next = { ...done, [side]: result };
     setDone(next);
     freeBitmap();
@@ -309,14 +336,14 @@ export default function Grading() {
     };
     const set = (status) => setUploads(u => u.map(x => (x.id === id ? { ...x, status } : x)));
     api.grading.sendTestPhoto(data.photo, meta).then(() => set('sent'), err => set(err.message || 'failed'));
-    // the sideways photo too, as its own upload
-    if (data.edges?.photoB) {
-      const idB = `${id}-turned`;
-      setUploads(u => [...u.slice(-5), { id: idB, photo: data.edges.photoB, stage, side: data.side, status: 'sending' }]);
-      const setB = (status) => setUploads(u => u.map(x => (x.id === idB ? { ...x, status } : x)));
-      const metaB = { side: data.side, turned: true, stage, appVersion: APP_VERSION, native: isNative, camera: data.edges.cameraB, photoSize: data.edges.photoSizeB, quad: data.edges.quadB };
-      api.grading.sendTestPhoto(data.edges.photoB, metaB).then(() => setB('sent'), err => setB(err.message || 'failed'));
-    }
+    // the turned photos too, each as its own upload
+    (data.edges?.extras || []).forEach((x, i) => {
+      const idB = `${id}-turned-${i}`;
+      setUploads(u => [...u.slice(-5), { id: idB, photo: x.photo, stage, side: data.side, status: 'sending' }]);
+      const setB = (status) => setUploads(u => u.map(y => (y.id === idB ? { ...y, status } : y)));
+      const metaB = { side: data.side, turned: true, photoNumber: i + 2, turn: x.label, stage, appVersion: APP_VERSION, native: isNative, camera: x.camera, photoSize: x.photoSize, quad: x.quad };
+      api.grading.sendTestPhoto(x.photo, metaB).then(() => setB('sent'), err => setB(err.message || 'failed'));
+    });
   }
   const uploadOf = (photo, stage) => [...uploads].reverse().find(u => u.photo === photo && u.stage === stage);
 
@@ -416,23 +443,29 @@ export default function Grading() {
         </section>
       )}
 
-      {step === 'turned' && work && (
-        <>
-          <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
-            <p style={{ margin: 0 }}>
-              <b>Edges check:</b> turn the card a quarter turn where it lies, so it's sideways, and take
-              another photo with the phone held the same way as before.
-            </p>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              Light glinting off a card's cut edges looks just like whitening in one photo. With the card
-              turned, the glints move to other edges while real whitening stays put, so the two photos tell them apart.
-            </p>
-          </section>
-          <CameraCapture key={`${side}-turned`} sideName={`${NAMES[side]} (sideways)`} onPhoto={onTurnedPhoto} guide="landscape" />
-          <button className="btn btn-ghost" onClick={() => showEdges(work.scanA)}>Skip: check the edges from the first photo only</button>
-          <button className="btn btn-ghost" onClick={() => setStep('centering')}>Back to the lines</button>
-        </>
-      )}
+      {step === 'turned' && work && (() => {
+        const n = (work.extras?.length || 0) + 2;
+        const turn = TURNS[n];
+        return (
+          <>
+            <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
+              <p style={{ margin: 0 }}>
+                <b>Edges check, photo {n} of {n === 2 ? 2 : MAX_PHOTOS}:</b> {turn.how}
+              </p>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                {n === 2
+                  ? 'Light glinting off a card\'s cut edges looks just like whitening in one photo. With the card turned, the glints move to other edges while real whitening stays put, so the two photos tell them apart.'
+                  : 'Whitening was still found. If it\'s the light, it won\'t be in the same place with the card turned this way. Whitening only counts if it\'s in every photo.'}
+              </p>
+            </section>
+            <CameraCapture key={`${side}-turned-${n}`} sideName={`${NAMES[side]} (${turn.label})`} onPhoto={onTurnedPhoto} guide={turn.guide} />
+            {n === 2
+              ? <button className="btn btn-ghost" onClick={() => showEdges(work.scanA)}>Skip: check the edges from the first photo only</button>
+              : <button className="btn btn-ghost" onClick={() => setStep('edges')}>Skip: keep the result from {n - 1} photos</button>}
+            <button className="btn btn-ghost" onClick={() => setStep('centering')}>Back to the lines</button>
+          </>
+        );
+      })()}
 
       {step === 'edges' && work?.edges && (
         <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
@@ -447,10 +480,11 @@ export default function Grading() {
             </p>
           )}
           <EdgesReview edges={work.edges} onToggle={toggleSpot} />
+          <MorePhotos edges={work.edges} onMore={() => setStep('turned')} />
           <div style={rowStyle}>
-            <button className="btn btn-primary" onClick={toSurface}>Next: surface</button>
-            <button className="btn btn-ghost" onClick={() => setStep('turned')}>
-              {work.edges.combined ? 'Retake the sideways photo' : 'Add a sideways photo'}
+            <button className={`btn ${wantsMorePhotos(work.edges) ? 'btn-ghost' : 'btn-primary'}`} onClick={toSurface}>Next: surface</button>
+            <button className="btn btn-ghost" onClick={() => { setWork(w => ({ ...w, extras: [] })); setStep('turned'); }}>
+              {work.edges.combined ? 'Start the turned photos again' : 'Add a sideways photo'}
             </button>
             <button className="btn btn-ghost" onClick={() => setStep('centering')}>Back to the lines</button>
           </div>
@@ -598,11 +632,35 @@ function Result({ done, settings, onRedo, onAnother, sendButton, save }) {
   );
 }
 
-// "Whitening: 3.1 mm along the edges, up to 0.25 mm deep (2 corners)"
-function whiteningText(m) {
-  if (!m || !m.counted) return 'No whitening counted.';
-  const where = [m.corners && `${m.corners} corner${m.corners > 1 ? 's' : ''}`, m.edges && `${m.edges} edge${m.edges > 1 ? 's' : ''}`].filter(Boolean).join(', ');
-  return `Whitening: ${m.lengthMm} mm in all, up to ${m.depthMm} mm deep (${where}).`;
+// Whitening still counted after 2 or 3 photos: worth another, turned photo.
+function countedSpots(edges) {
+  return edges.spots.filter(sp => !sp.doubt && !edges.ignored.includes(sp.id)).length;
+}
+function wantsMorePhotos(edges) {
+  const photos = edges.photos || 1;
+  return photos >= 2 && photos < MAX_PHOTOS && countedSpots(edges) > 0;
+}
+
+function MorePhotos({ edges, onMore }) {
+  const photos = edges.photos || 1;
+  if (photos < 2 || !countedSpots(edges)) return null;
+  if (photos >= MAX_PHOTOS) {
+    return (
+      <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+        It's in all {photos} photos, so it's most likely real. If you still can't see it on the card, tap "Not whitening".
+      </p>
+    );
+  }
+  const n = photos + 1;
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', borderRadius: 8, background: 'var(--bg-elevated)' }}>
+      <span>
+        Whitening was found in {photos === 2 ? 'both' : `all ${photos}`} photos. If you can't see it on the card, it may be the
+        light: take photo {n} with the card {TURNS[n].label} to double-check.
+      </span>
+      <div><button className="btn btn-primary" onClick={onMore}>Double-check: photo {n}</button></div>
+    </div>
+  );
 }
 
 // The edges step's numbers for the side being checked, and what they allow.
@@ -616,7 +674,7 @@ function EdgesNumbers({ edges, face, settings }) {
         <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
           The {face}'s edges allow up to {c.cap === settings.edges.floor ? `${c.cap} or lower` : c.cap}
           {c.low !== c.high ? ` (could be ${c.low}–${c.high})` : ''}.
-          {' '}{edges.combined ? 'Checked with both photos.' : 'Checked from one photo.'}
+          {' '}{edges.combined ? `Checked with ${edges.photos || 2} photos.` : 'Checked from one photo.'}
         </div>
       )}
     </div>

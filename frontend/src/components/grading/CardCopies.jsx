@@ -2,15 +2,18 @@
 //
 // CardView: the card picked on the Grading tab with its saved copies (each
 // with its estimate and keep / sell / undecided), and buttons to check
-// another copy or compare.
+// another copy or compare. "Details" on a copy shows its saved front and back
+// pictures with the whitening found marked on them (the marks can be turned
+// off) and why the estimate is what it is.
 // CompareView: two copies side by side, what differs, which to keep (advice),
 // and Keep A / Keep B. Keeping one marks the other "to sell"; nothing ever
 // unticks an ownership box.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { gradingImage } from '../../api.js';
-import { estimateOf, gradeText, compareCopies } from '../../grading/estimate.js';
+import { estimateOf, gradeText, compareCopies, whiteningText } from '../../grading/estimate.js';
+import { EdgesCard } from './EdgesReview.jsx';
 import { surfaceText } from '../../grading/surface.js';
 import { reverseName } from './CardPicker.jsx';
 
@@ -88,28 +91,133 @@ export function CardView({ data, slot, settings, notice, onSlot, onCheck, onComp
 function CopyRow({ copy, n, settings, onDelete, onStatus, onLabel }) {
   const est = estimateOf(copy.result?.sides, settings);
   const st = STATUS[copy.status] || STATUS.checked;
+  const [open, setOpen] = useState(false);
   return (
-    <section className="panel" style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-      <Thumbs copy={copy} />
-      <div style={{ display: 'grid', gap: 4, flex: 1, minWidth: 180 }}>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
-          <b>{copy.label || `Copy ${n + 1}`}</b>
-          <span style={{ color: st.color, fontSize: '0.85rem', fontWeight: 600 }}>{st.text}</span>
-        </div>
-        <div>Estimate: up to <b>{gradeText(est)}</b></div>
-        {est?.limiting?.length > 0 && est.best < 10 && (
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Limited by the {est.limiting.map(p => p.name).join(' and the ')}.</div>
-        )}
-        {!copy.result?.sides?.back && <div style={{ fontSize: '0.85rem', color: 'var(--warning)' }}>Front only</div>}
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Saved {new Date(copy.created_at).toLocaleDateString()}</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-          <button className="btn btn-ghost btn-sm" onClick={onLabel}>Rename</button>
-          {copy.status === 'sell' && <button className="btn btn-ghost btn-sm" onClick={() => onStatus('checked')}>Not selling it</button>}
-          {copy.status === 'keep' && <button className="btn btn-ghost btn-sm" onClick={() => onStatus('checked')}>Undo keep</button>}
-          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={onDelete}>Remove</button>
+    <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <Thumbs copy={copy} />
+        <div style={{ display: 'grid', gap: 4, flex: 1, minWidth: 180 }}>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <b>{copy.label || `Copy ${n + 1}`}</b>
+            <span style={{ color: st.color, fontSize: '0.85rem', fontWeight: 600 }}>{st.text}</span>
+          </div>
+          <div>Estimate: up to <b>{gradeText(est)}</b></div>
+          {est?.limiting?.length > 0 && est.best < 10 && (
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Limited by the {est.limiting.map(p => p.name).join(' and the ')}.</div>
+          )}
+          {!copy.result?.sides?.back && <div style={{ fontSize: '0.85rem', color: 'var(--warning)' }}>Front only</div>}
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Saved {new Date(copy.created_at).toLocaleDateString()}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>
+            <button className="btn btn-ghost btn-sm" onClick={onLabel}>Rename</button>
+            {copy.status === 'sell' && <button className="btn btn-ghost btn-sm" onClick={() => onStatus('checked')}>Not selling it</button>}
+            {copy.status === 'keep' && <button className="btn btn-ghost btn-sm" onClick={() => onStatus('checked')}>Undo keep</button>}
+            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={onDelete}>Remove</button>
+          </div>
         </div>
       </div>
+      {open && <CopyDetails copy={copy} est={est} settings={settings} />}
     </section>
+  );
+}
+
+// A saved copy in full: why the estimate is what it is, then each side's
+// picture with the whitening marked, and its numbers.
+function CopyDetails({ copy, est, settings }) {
+  const [marks, setMarks] = useState(true);
+  const sides = copy.result?.sides || {};
+  const anyMarks = ['front', 'back'].some(f => copy.result?.details?.[f]?.edges?.spots?.some(sp => !sp.doubt));
+  return (
+    <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+      {est && (
+        <table style={{ fontSize: '0.9rem', borderCollapse: 'collapse' }}>
+          <tbody>
+            {est.parts.map(p => (
+              <tr key={p.id} style={{ verticalAlign: 'top' }}>
+                <td style={{ color: 'var(--text-muted)', paddingRight: 10, whiteSpace: 'nowrap' }}>{p.name.charAt(0).toUpperCase() + p.name.slice(1)}</td>
+                <td style={{ paddingRight: 10, whiteSpace: 'nowrap' }}>
+                  up to <b style={{ color: est.limiting.includes(p) && est.best < 10 ? 'var(--warning)' : undefined }}>
+                    {p.cap.cap === p.floor ? `${p.cap.cap} or lower` : p.cap.cap}
+                  </b>
+                </td>
+                <td style={{ color: 'var(--text-secondary)' }}>{p.why || ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {anyMarks && (
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.9rem' }}>
+          <input type="checkbox" checked={marks} onChange={e => setMarks(e.target.checked)} />
+          Show the whitening found (red marks)
+        </label>
+      )}
+      <div style={{ display: 'grid', gap: 'var(--space-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        {['front', 'back'].map(face => sides[face] && (
+          <SavedSide key={face} copy={copy} face={face} marks={marks} settings={settings} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SavedSide({ copy, face, marks, settings }) {
+  const side = copy.result.sides[face];
+  const detail = copy.result?.details?.[face] || {};
+  const src = gradingImage(copy.images?.[face]);
+  const [img, setImg] = useState(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!src) return undefined;
+    let live = true;
+    const el = new Image();
+    el.onload = () => live && setImg(el);
+    el.onerror = () => live && setFailed(true);
+    el.src = src;
+    return () => { live = false; };
+  }, [src]);
+
+  // The saved picture is the first photo straightened with a margin of
+  // background round it; the spots are in card pixels (the edges check's
+  // tracks), so the card's size and corner come from the picture's size.
+  let edges = null;
+  if (img) {
+    const margin = detail.pictureMargin || 0;
+    const W = img.naturalWidth - 2 * margin, H = img.naturalHeight - 2 * margin;
+    const ppm = W / 63;
+    const radiusMm = copy.result?.settings?.edges?.cornerRadiusMm ?? settings.edges.cornerRadiusMm;
+    const e = detail.edges;
+    edges = {
+      image: img, margin, scan: { W, H, ppm, R: radiusMm * ppm },
+      spots: e?.spots || [], ignored: e?.ignored || [], doubtTracks: e?.doubtTracks || [],
+    };
+  }
+  const c = side.centering;
+  const muted = { color: 'var(--text-muted)', paddingRight: 10 };
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <b>{face === 'front' ? 'Front' : 'Back'}</b>
+      {edges
+        ? <EdgesCard edges={edges} maxWidth={300} marks={marks && !!detail.edges} />
+        : <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{failed ? "The picture didn't load." : src ? 'Loading the picture…' : 'No picture saved.'}</div>}
+      {c && (
+        <table style={{ fontSize: '0.85rem' }}>
+          <tbody>
+            <tr><td style={muted}>Left / right</td><td><b>{c.leftRightText}</b> ({c.mm.left} / {c.mm.right} mm)</td></tr>
+            <tr><td style={muted}>Top / bottom</td><td><b>{c.topBottomText}</b> ({c.mm.top} / {c.mm.bottom} mm)</td></tr>
+          </tbody>
+        </table>
+      )}
+      <div style={{ fontSize: '0.85rem' }}>
+        {side.whitening ? whiteningText(side.whitening) : 'Edges not checked.'}
+        {detail.edges && (
+          <span style={{ color: 'var(--text-muted)' }}>
+            {' '}{detail.edges.combined ? `Checked with ${detail.edges.photos || 2} photos.` : 'Checked from one photo.'}
+          </span>
+        )}
+      </div>
+      {side.surface && <div style={{ fontSize: '0.85rem' }}>Surface: {surfaceText(side.surface, settings) || 'nothing ticked'}.</div>}
+    </div>
   );
 }
 

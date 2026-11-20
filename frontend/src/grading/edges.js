@@ -21,8 +21,12 @@
 // photo: a thin bright line along the edges that face a lamp. Glints follow
 // the light, whitening stays with the card, so a second photo with the card
 // turned a quarter turn (lying sideways) settles it: at each point the
-// smaller of the two depths is kept (combine). With one photo only, an edge
-// lit along much of its length is marked "may be glints" and not counted.
+// smallest depth over the photos is kept (combine). A light that isn't the
+// same all round can still catch one edge in both photos, so when whitening
+// is left after two, the Grading page asks for a third (turned the other
+// way) and then a fourth (upside down): whitening has to be in every photo
+// to count. With one photo only, an edge lit along much of its length is
+// marked "may be glints" and not counted.
 //
 // Spots: stretches of track whitened at least minDepthPx deep. The limit
 // they set on the grade is a rough guide (the table in config.js), not a
@@ -218,27 +222,36 @@ export function turnImage(image) {
   return new ImageData(out, width, height);
 }
 
-// Two scans of the same side (the second already lined up): at each point
-// the smaller depth, after letting each spread alignPx either way (the two
-// outlines can differ by a pixel or two).
+// Scans of the same side (all but the first already lined up with it): at
+// each point the smallest depth, after letting each spread alignPx either way
+// (the outlines can differ by a pixel or two). combineScans([a, b, c], settings),
+// or combineScans(a, b, settings) for two. Answers a scan with combined: true
+// and photos: how many went into it.
 export function combineScans(a, b, settings) {
+  const scans = Array.isArray(a) ? a : [a, b];
+  if (Array.isArray(a)) settings = b;
   const k = settings.edges.alignPx;
+  const first = scans[0];
   const tracks = {};
   for (const key of TRACKS) {
-    const da = spread(a.tracks[key].depth, k), db = spread(b.tracks[key].depth, k);
-    const n = da.length;
+    const spreadOut = scans.map(sc => spread(sc.tracks[key].depth, k));
+    const n = spreadOut[0].length;
     const depth = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const x = da[i], y = db[i];
-      depth[i] = Number.isNaN(x) ? y : Number.isNaN(y) ? x : Math.min(x, y);
+      let v = NaN;
+      for (const d of spreadOut) {
+        const x = d[i];
+        if (!Number.isNaN(x)) v = Number.isNaN(v) ? x : Math.min(v, x);
+      }
+      depth[i] = v;
     }
-    tracks[key] = { depth, edge: a.tracks[key].edge };
+    tracks[key] = { depth, edge: first.tracks[key].edge };
   }
   // Glints are gone now, so nothing is in doubt: whitening left along an
-  // edge was there in both photos, with the light on different edges.
+  // edge was there in every photo, with the light on different edges.
   const lit = {};
-  for (const key of Object.keys(a.lit)) lit[key] = 0;
-  return { ...a, tracks, lit, combined: true };
+  for (const key of Object.keys(first.lit)) lit[key] = 0;
+  return { ...first, tracks, lit, combined: true, photos: scans.length };
 }
 
 // The whitened stretches. Answers [{ id, track, from, to (steps), lengthMm,
