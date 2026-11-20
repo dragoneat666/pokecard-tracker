@@ -35,6 +35,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useLeaveGuard } from '../leaveGuard.js';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
@@ -86,6 +87,11 @@ export default function Grading() {
   const [savedCopy, setSavedCopy] = useState(null);
   const [params, setParams] = useSearchParams();
   // the address follows the card on screen, so a reload opens it again
+  // A check with photos or results not saved yet: Back (the phone's or the
+  // browser's), the top-bar links and reloading ask before throwing it away.
+  const unsaved = !savedCopy && !['home', 'card', 'compare'].includes(step) && (!!work || Object.keys(done).length > 0);
+  useLeaveGuard(unsaved, LEAVE_TEXT);
+  const okToDrop = () => !unsaved || window.confirm(LEAVE_TEXT);
   const showCardInAddress = (id, which) => setParams(id ? { card: String(id), ...(which === 'reverse' ? { slot: which } : {}) } : {}, { replace: true });
   const settings = useRef(mergeSettings(labOverrides())).current;
   const usingLab = Object.keys(labOverrides()).length > 0;
@@ -369,7 +375,7 @@ export default function Grading() {
         {CHECKING.includes(step) && <span style={{ color: 'var(--text-secondary)' }}>{side === 'front' ? 'Front' : 'Back'} of the card</span>}
         <span style={{ flex: 1 }} />
         {step !== 'home' && step !== 'card' && step !== 'working' && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { freeBitmap(); setWork(null); setStep(cardData ? 'card' : 'home'); }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => { if (!okToDrop()) return; freeBitmap(); setWork(null); setStep(cardData ? 'card' : 'home'); }}>
             {cardData ? 'Back to the card' : 'Start over'}
           </button>
         )}
@@ -513,7 +519,7 @@ export default function Grading() {
         </section>
       )}
 
-      {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={start}
+      {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={() => { if (okToDrop()) start(); }}
         save={<SavePanel cardData={cardData} slot={slot} savedCopy={savedCopy} onSave={saveCopy}
           onPickCard={(card, s) => busy('Loading the card…', async () => {
             setCardData(await api.grading.card(card.id));
@@ -841,5 +847,6 @@ async function jpegOf(image, quality, width = image.width) {
 }
 
 const CHECKING = ['capture', 'corners', 'centering', 'turned', 'edges', 'surface'];
+const LEAVE_TEXT = "Leave this check? The photos and results you haven't saved will be lost.";
 const rowStyle = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' };
 const cellKey = { color: 'var(--text-muted)', paddingRight: 12, whiteSpace: 'nowrap' };

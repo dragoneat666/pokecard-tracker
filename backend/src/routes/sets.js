@@ -282,7 +282,12 @@ router.get('/:id', async (req, res, next) => {
         -- Grading tab: copies saved, and whether one was picked to sell
         (SELECT COUNT(*)::INT FROM grading_copies g WHERE g.card_id = c.id) AS grading_copies,
         EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status = 'sell') AS regular_to_sell,
-        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell,
+        -- ...and the estimate of the copy you have: the one kept, else the best not marked to sell
+        (SELECT g.estimate FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status <> 'sell'
+          ORDER BY (g.status = 'keep') DESC, g.estimate DESC NULLS LAST LIMIT 1) AS regular_estimate,
+        (SELECT g.estimate FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status <> 'sell'
+          ORDER BY (g.status = 'keep') DESC, g.estimate DESC NULLS LAST LIMIT 1) AS reverse_estimate
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id
@@ -313,7 +318,12 @@ router.get('/:id', async (req, res, next) => {
         -- Grading tab: copies saved, and whether one was picked to sell
         (SELECT COUNT(*)::INT FROM grading_copies g WHERE g.card_id = c.id) AS grading_copies,
         EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status = 'sell') AS regular_to_sell,
-        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell
+        EXISTS (SELECT 1 FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status = 'sell') AS reverse_to_sell,
+        -- ...and the estimate of the copy you have: the one kept, else the best not marked to sell
+        (SELECT g.estimate FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'regular' AND g.status <> 'sell'
+          ORDER BY (g.status = 'keep') DESC, g.estimate DESC NULLS LAST LIMIT 1) AS regular_estimate,
+        (SELECT g.estimate FROM grading_copies g WHERE g.card_id = c.id AND g.slot = 'reverse' AND g.status <> 'sell'
+          ORDER BY (g.status = 'keep') DESC, g.estimate DESC NULLS LAST LIMIT 1) AS reverse_estimate
       FROM cards c
       LEFT JOIN reverse_holos rh ON rh.card_id = c.id
       LEFT JOIN current_prices cp ON cp.card_id = c.id

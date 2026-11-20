@@ -12,7 +12,9 @@
 //
 // With 2 copies ticked, a small link opens the card on the Grading tab to
 // compare them; once a copy has been picked to sell there, the link shows
-// "1 to sell" instead (until the second box is unticked).
+// "1 to sell" instead (until the second box is unticked). After that (or
+// with one copy checked on the Grading tab) it shows the estimated grade of
+// the copy you have, e.g. "est 9", and still opens it there.
 
 import { memo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -139,8 +141,8 @@ const CardRow = memo(function CardRow({
                 dim={card.owned < 1}
               />
             )}
-            {card.owned >= 2 && (
-              <GradingLink card={card} toSell={card.regular_to_sell} />
+            {(card.owned >= 2 || card.regular_estimate != null) && (
+              <GradingLink card={card} toSell={card.owned >= 2 && card.regular_to_sell} estimate={card.regular_estimate} />
             )}
           </div>
         </td>
@@ -156,7 +158,9 @@ const CardRow = memo(function CardRow({
                 title={variantType === 'first_edition' ? 'Own first edition' : 'Own reverse holo'}
                 color="var(--rarity-holo)"
               />
-              {card.reverse_owned >= 2 && card.reverse_to_sell && <GradingLink card={card} slot="reverse" toSell />}
+              {card.reverse_owned >= 2 && card.reverse_to_sell
+                ? <GradingLink card={card} slot="reverse" toSell />
+                : card.reverse_estimate != null && <GradingLink card={card} slot="reverse" estimate={card.reverse_estimate} />}
               </span>
             ) : (
               <span style={{ color: 'var(--text-muted)' }}>—</span>
@@ -413,14 +417,23 @@ function GradedSlot({
 
 // ── Checkbox ─────────────────────────────────────────────────────────────────
 // Opens the card on the Grading tab: "1 to sell" once a copy was picked to
-// sell there, otherwise a small scales icon to go and compare the copies.
-function GradingLink({ card, slot = 'regular', toSell = false }) {
+// sell there, else the estimated grade of the copy you have, else a small
+// scales icon to go and compare the copies.
+function GradingLink({ card, slot = 'regular', toSell = false, estimate = null }) {
   const to = `/grading?card=${card.id}${slot === 'reverse' ? '&slot=reverse' : ''}`;
   if (toSell) {
     return (
       <Link to={to} title="You picked a copy to sell on the Grading tab. Untick the box once it's gone."
         style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap', textDecoration: 'none' }}>
         1 to sell
+      </Link>
+    );
+  }
+  if (estimate != null) {
+    return (
+      <Link to={to} title="Estimated grade of your copy from the Grading tab (an estimate, not an official grade). Opens it there."
+        style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '0 4px', whiteSpace: 'nowrap', textDecoration: 'none' }}>
+        est {estimate}
       </Link>
     );
   }

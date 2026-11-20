@@ -15,6 +15,7 @@ import GradingLab from './pages/GradingLab.jsx';
 import Grading   from './pages/Grading.jsx';
 import { ServerSetup, UpdateBanner, needsServer } from './components/AppShell.jsx';
 import { isNative } from './api.js';
+import { okToLeave } from './leaveGuard.js';
 
 // The Android app opens on the Grading tab (once per launch; after that the
 // Collection link works as usual).
@@ -34,7 +35,11 @@ function Layout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <StartOnGrading />
-      <nav className="app-nav" style={{
+      {/* a check in progress on the Grading tab asks before a link leaves it */}
+      <nav className="app-nav" onClickCapture={(e) => {
+        const link = e.target.closest('a');
+        if (link && link.pathname !== location.pathname && !okToLeave()) { e.preventDefault(); e.stopPropagation(); }
+      }} style={{
         background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
         padding: 'var(--safe-top) var(--space-5) 0',
