@@ -12,7 +12,8 @@
 //        Finds the card's outline. Give it a downscaled photo (~1000 px).
 //   { type: 'refine', image: ImageData, quad } → { quad }
 //        Moves each edge onto the card's real edge in a bigger copy (~2000 px).
-//   { type: 'warp', image: ImageData, quad, width, height } → { image: ImageData }
+//   { type: 'warp', image: ImageData, quad, width, height, margin } → { image: ImageData }
+//     (margin: pixels of the photo kept round the card, for the edges check)
 //        Straightens the card to width x height.
 // quad = 4 corners [[x,y] ...] in the given image's pixels: top-left, top-right,
 // bottom-right, bottom-left, card upright (short sides at top and bottom).
@@ -55,7 +56,7 @@ self.onmessage = async (e) => {
     else if (type === 'detect') result = detect(e.data.image, e.data.debug);
     else if (type === 'refine') result = refine(e.data.image, e.data.quad);
     else if (type === 'warp') {
-      const image = warp(e.data.image, e.data.quad, e.data.width, e.data.height);
+      const image = warp(e.data.image, e.data.quad, e.data.width, e.data.height, e.data.margin || 0);
       self.postMessage({ id, result: { image } }, [image.data.buffer]);
       return;
     } else throw new Error('Unknown message ' + type);
@@ -507,7 +508,7 @@ function intersect(l1, l2) {
 
 // ─── STRAIGHTEN ───────────────────────────────────────────────────────────────
 
-function warp(imageData, quad, outW, outH) {
+function warp(imageData, quad, outW, outH, margin = 0) {
   let src = cv.matFromImageData(imageData);
   let q = quad;
   // Shrinking a lot in one perspective warp skips pixels (jagged, noisy
@@ -525,12 +526,14 @@ function warp(imageData, quad, outW, outH) {
   }
   const from = cv.matFromArray(4, 1, cv.CV_32FC2, q.flat());
   // The card's edges go on the outer edges of the picture's edge pixels
-  // (-0.5 and outW - 0.5), so the card fills exactly outW x outH pixels.
-  const to = cv.matFromArray(4, 1, cv.CV_32FC2, [-0.5, -0.5, outW - 0.5, -0.5, outW - 0.5, outH - 0.5, -0.5, outH - 0.5]);
+  // (-0.5 and outW - 0.5), so the card fills exactly outW x outH pixels
+  // (plus `margin` pixels of the photo all round, if asked for).
+  const m = margin, a = m - 0.5, bx = outW + m - 0.5, by = outH + m - 0.5;
+  const to = cv.matFromArray(4, 1, cv.CV_32FC2, [a, a, bx, a, bx, by, a, by]);
   const M = cv.getPerspectiveTransform(from, to);
   const dst = new cv.Mat();
-  cv.warpPerspective(src, dst, M, new cv.Size(outW, outH), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
-  const out = new ImageData(new Uint8ClampedArray(dst.data), outW, outH);
+  cv.warpPerspective(src, dst, M, new cv.Size(outW + 2 * m, outH + 2 * m), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
+  const out = new ImageData(new Uint8ClampedArray(dst.data), outW + 2 * m, outH + 2 * m);
   [src, from, to, M, dst].forEach(m => m.delete());
   return out;
 }

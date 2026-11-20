@@ -5,10 +5,16 @@
 //   2. corners       the card's outline as found; corners can be moved
 //   3. centering     the straightened card with its border lines; lines can
 //                    be moved
-// then the centering result for both sides together.
+//   4. turned        (can be skipped) a second photo with the card turned a
+//                    quarter turn, for the edges check: light glinting off
+//                    the card's edges looks like whitening in one photo, but
+//                    moves to other edges when the card is turned
+//   5. edges         whitening on the edges and corners, each spot shown
+//                    close up; spots that aren't whitening can be left out
+// then the result for both sides together.
 //
 // This is an estimate from photos, not a grade: it says the best grade the
-// centering allows. Edges, corners and surface come in later steps.
+// centering and the edges allow. The surface comes in a later step.
 //
 // Everything is worked out on the phone. Nothing is sent anywhere unless
 // "Send for testing" is tapped: that sends the photo and what was found in it
@@ -19,19 +25,21 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
 import CameraCapture from '../components/grading/CameraCapture.jsx';
 import CornerEditor from '../components/grading/CornerEditor.jsx';
 import CenteringEditor from '../components/grading/CenteringEditor.jsx';
+import EdgesReview, { EdgesCard } from '../components/grading/EdgesReview.jsx';
 import { drawCanvas, imageCanvas, useCanvasWidth } from '../components/grading/canvasTools.js';
 
 const centering = analyzer('centering');
 const NAMES = { front: 'front', back: 'back' };
 
 export default function Grading() {
-  const [step, setStep] = useState('home');      // home | capture | working | corners | centering | result
+  const [step, setStep] = useState('home');      // home | capture | working | corners | centering | turned | edges | result
   const [side, setSide] = useState('front');
   const [busyText, setBusyText] = useState('');
   const [error, setError] = useState('');
@@ -103,9 +111,58 @@ export default function Grading() {
     setStep('centering');
   });
 
+  // After the lines: the first photo straightened again with a margin of
+  // background round it (the edges check needs to see where the card stops),
+  // then the sideways photo.
+  const toEdges = () => busy('Getting the edges ready…', async () => {
+    const margin = Math.round(settings.edges.marginMm * settings.image.pxPerMm);
+    const imageM = await straighten(work.bitmap, work.quad, { margin });
+    const scanA = scanEdges(imageM, margin, settings);
+    setWork(w => ({ ...w, imageM, scanA, margin, glare: glareShare(imageM, margin) }));
+    setStep('turned');
+  });
+
+  const showEdges = (scan, extra = {}) => {
+    const spots = findSpots(scan, settings);
+    const doubtTracks = doubtTracksOf(scan, settings);
+    setWork(w => ({
+      ...w,
+      edges: { scan, spots, ignored: [], doubtTracks, combined: !!scan.combined, margin: w.margin, image: w.imageM, imageB: null, ...extra },
+    }));
+    setStep('edges');
+  };
+
+  const onTurnedPhoto = (photo, camera = {}) => busy('Finding the card in the sideways photo…', async () => {
+    const bitmap = await loadPhoto(photo);
+    try {
+      const found = await findCard(bitmap);
+      if (!found.quad) {
+        throw new Error(found.cutOff
+          ? 'The card runs off the edge of the sideways photo. Take it again with a gap all round the card.'
+          : 'Couldn\'t find the card in the sideways photo. Take it again, or skip it.');
+      }
+      let imageB = await straighten(bitmap, found.quad, { margin: work.margin });
+      // straightened upright, the card may have come out upside down
+      if (sameWayUp(work.imageM, imageB, work.margin) < 0) imageB = turnImage(imageB);
+      const scanB = scanEdges(imageB, work.margin, settings);
+      showEdges(combineScans(work.scanA, scanB, settings), {
+        imageB, photoB: photo, cameraB: camera, photoSizeB: [bitmap.width, bitmap.height], quadB: found.quad,
+      });
+    } finally {
+      bitmap.close?.();
+    }
+  });
+
+  const toggleSpot = (id) => setWork(w => {
+    const ignored = w.edges.ignored.includes(id) ? w.edges.ignored.filter(x => x !== id) : [...w.edges.ignored, id];
+    return { ...w, edges: { ...w.edges, ignored } };
+  });
+
   function finishSide() {
     const measured = centering.measure({ lines: work.lines }, settings);
-    const result = { ...work, bitmap: null, measured };
+    const e = work.edges;
+    const edges = e && { ...e, imageB: null, measured: measureEdges(e.spots, e.ignored, e.doubtTracks) };
+    const result = { ...work, bitmap: null, scanA: null, measured, edges };
     const next = { ...done, [side]: result };
     setDone(next);
     freeBitmap();
@@ -126,10 +183,23 @@ export default function Grading() {
       found: { ok: data.found, cutOff: data.cutOff, strategy: data.strategy, quad: data.foundQuad },
       quad: data.quad, bendMm: data.bendMm, detailPxPerMm: Math.round(detailOf(data.quad) * 10) / 10,
       lines: data.lines || null, foundLines: data.foundLines || null, measured: data.measured || null,
+      edges: data.edges ? {
+        combined: data.edges.combined, spots: data.edges.spots, ignored: data.edges.ignored,
+        doubtTracks: data.edges.doubtTracks, lit: data.edges.scan.lit, unread: data.edges.scan.unread,
+        measured: data.edges.measured || null, glare: data.glare ?? null,
+      } : null,
       labSettings: labOverrides(),
     };
     const set = (status) => setUploads(u => u.map(x => (x.id === id ? { ...x, status } : x)));
     api.grading.sendTestPhoto(data.photo, meta).then(() => set('sent'), err => set(err.message || 'failed'));
+    // the sideways photo too, as its own upload
+    if (data.edges?.photoB) {
+      const idB = `${id}-turned`;
+      setUploads(u => [...u.slice(-5), { id: idB, photo: data.edges.photoB, stage, side: data.side, status: 'sending' }]);
+      const setB = (status) => setUploads(u => u.map(x => (x.id === idB ? { ...x, status } : x)));
+      const metaB = { side: data.side, turned: true, stage, appVersion: APP_VERSION, native: isNative, camera: data.edges.cameraB, photoSize: data.edges.photoSizeB, quad: data.edges.quadB };
+      api.grading.sendTestPhoto(data.edges.photoB, metaB).then(() => setB('sent'), err => setB(err.message || 'failed'));
+    }
   }
   const uploadOf = (photo, stage) => [...uploads].reverse().find(u => u.photo === photo && u.stage === stage);
 
@@ -195,10 +265,51 @@ export default function Grading() {
           <CenteringEditor image={work.image} lines={work.lines} sides={work.sides} pxPerMm={settings.image.pxPerMm}
             onChange={lines => setWork(w => ({ ...w, lines }))} />
           <div style={rowStyle}>
-            <button className="btn btn-primary" onClick={finishSide}>Done with the {NAMES[side]}</button>
+            <button className="btn btn-primary" onClick={toEdges}>Next: edges and corners</button>
             <button className="btn btn-ghost" onClick={() => setWork(w => ({ ...w, lines: w.foundLines }))}>Reset lines</button>
             <button className="btn btn-ghost" onClick={() => toCentering(turnQuad(work.quad))} title="The card is upside down">Turn 180°</button>
             <button className="btn btn-ghost" onClick={() => setStep('corners')}>Redo corners</button>
+          </div>
+        </section>
+      )}
+
+      {step === 'turned' && work && (
+        <>
+          <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
+            <p style={{ margin: 0 }}>
+              <b>Edges check:</b> turn the card a quarter turn where it lies, so it's sideways, and take
+              another photo with the phone held the same way as before.
+            </p>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              Light glinting off a card's cut edges looks just like whitening in one photo. With the card
+              turned, the glints move to other edges while real whitening stays put, so the two photos tell them apart.
+            </p>
+          </section>
+          <CameraCapture key={`${side}-turned`} sideName={`${NAMES[side]} (sideways)`} onPhoto={onTurnedPhoto} guide="landscape" />
+          <button className="btn btn-ghost" onClick={() => showEdges(work.scanA)}>Skip: check the edges from the first photo only</button>
+          <button className="btn btn-ghost" onClick={() => setStep('centering')}>Back to the lines</button>
+        </>
+      )}
+
+      {step === 'edges' && work?.edges && (
+        <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
+          <p style={{ margin: 0 }}>
+            Whitening on the edges and corners is marked in red and shown close up below. If a spot isn't
+            whitening (dust, a glint, part of the print), tap "Not whitening".
+          </p>
+          <EdgesNumbers edges={work.edges} face={side} settings={settings} />
+          {work.glare > settings.edges.glareWarnShare && (
+            <p style={{ margin: 0, color: 'var(--warning)' }}>
+              ⚠️ Glare on part of the card: whitening under it can't be seen. If it's near an edge, move the light and retake.
+            </p>
+          )}
+          <EdgesReview edges={work.edges} onToggle={toggleSpot} />
+          <div style={rowStyle}>
+            <button className="btn btn-primary" onClick={finishSide}>Done with the {NAMES[side]}</button>
+            <button className="btn btn-ghost" onClick={() => setStep('turned')}>
+              {work.edges.combined ? 'Retake the sideways photo' : 'Add a sideways photo'}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setStep('centering')}>Back to the lines</button>
           </div>
         </section>
       )}
@@ -214,8 +325,8 @@ function Home({ onStart }) {
     <>
       <section className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
         <p style={{ margin: 0 }}>
-          Photograph a card's front and back to measure its centering: how even the borders are.
-          The result is the best grade the centering allows (an estimate, not a real grade).
+          Photograph a card's front and back to check its centering (how even the borders are) and
+          its edges and corners (whitening). The result is the best grade those allow: an estimate, not a real grade.
         </p>
         <button className="btn btn-primary" style={{ minHeight: 48 }} onClick={onStart}>Check a card</button>
       </section>
@@ -229,6 +340,7 @@ function Home({ onStart }) {
           <li>Keep the card in the middle of the picture (the dashed outline). A gently curled card is fine for centering there; a badly bent one should be flattened first.</li>
           <li>Keep tall things out of the picture: the camera may focus on them instead of the card.</li>
           <li>Hold still. The photo is taken by itself when the card is steady.</li>
+          <li>For the edges check, a second photo of each side with the card turned sideways tells real whitening from light glinting off the edges. Soft light (a lamp pointed at a white wall or the ceiling) makes fewer glints.</li>
         </ul>
       </section>
       {!isNative && (
@@ -245,18 +357,49 @@ function Home({ onStart }) {
 }
 
 function Result({ done, settings, onRedo, onAnother, sendButton }) {
-  const cap = centering.cap({ front: done.front?.measured, back: done.back?.measured }, settings);
-  const range = cap && cap.low !== cap.high ? `${cap.low}–${cap.high}` : null;
+  const cCap = centering.cap({ front: done.front?.measured, back: done.back?.measured }, settings);
+  const eCap = edgesCap(done.front?.edges?.measured, done.back?.edges?.measured, settings);
+  const parts = [
+    cCap && { name: 'centering', cap: cCap, floor: settings.centering.floor, why: cCap.limitedBy },
+    eCap && { name: 'edges and corners', cap: eCap, floor: settings.edges.floor, why: eCap.limitedBy },
+  ].filter(Boolean);
+  const best = parts.length ? Math.min(...parts.map(p => p.cap.cap)) : null;
+  const low = parts.length ? Math.min(...parts.map(p => p.cap.low)) : null;
+  const high = parts.length ? Math.min(...parts.map(p => p.cap.high)) : null;
+  const limiting = parts.filter(p => p.cap.cap === best);
+  const atFloor = limiting.some(p => p.cap.cap === p.floor);
   return (
     <>
       <section className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Centering allows up to</div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Estimate: up to</div>
         <div style={{ fontSize: '2.2rem', fontWeight: 800, lineHeight: 1 }}>
-          {cap ? (cap.cap === settings.centering.floor ? `${cap.cap} or lower` : cap.cap) : '—'}
+          {best === null ? '—' : atFloor ? `${best} or lower` : best}
         </div>
-        {range && <div style={{ color: 'var(--text-secondary)' }}>Close call: could be {range} (a line moved a little either way changes it).</div>}
-        {cap && <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Limited by the {cap.limitedBy}.</div>}
+        {low !== high && <div style={{ color: 'var(--text-secondary)' }}>Close call: could be {low}–{high}.</div>}
+        {limiting.length > 0 && (
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            Limited by the {limiting.map(p => `${p.name} (${p.why})`).join(' and the ')}.
+          </div>
+        )}
+        <table style={{ fontSize: '0.9rem', marginTop: 4 }}>
+          <tbody>
+            {parts.map(p => (
+              <tr key={p.name}>
+                <td style={cellKey}>{p.name.charAt(0).toUpperCase() + p.name.slice(1)}</td>
+                <td>up to <b>{p.cap.cap === p.floor ? `${p.cap.cap} or lower` : p.cap.cap}</b>
+                  {p.cap.low !== p.cap.high && <span style={{ color: 'var(--text-muted)' }}> (could be {p.cap.low}–{p.cap.high})</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {eCap?.unchecked > 0 && (
+          <div style={{ color: 'var(--warning)', fontSize: '0.9rem' }}>
+            Some edges weren't checked (they may only have been glinting): a sideways photo checks them.
+          </div>
+        )}
         {!done.back && <div style={{ color: 'var(--warning)', fontSize: '0.9rem' }}>Front only: the back can lower this.</div>}
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>The surface (scratches, dents, print lines) isn't checked yet.</div>
       </section>
       <div style={{ display: 'grid', gap: 'var(--space-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
         {['front', 'back'].map(s => done[s] && (
@@ -271,6 +414,13 @@ function Result({ done, settings, onRedo, onAnother, sendButton }) {
                 <tr><td style={cellKey}></td><td>{done[s].measured.mm.top} mm / {done[s].measured.mm.bottom} mm</td></tr>
               </tbody>
             </table>
+            {done[s].edges && (
+              <>
+                <EdgesCard edges={done[s].edges} maxWidth={260} />
+                <div style={{ fontSize: '0.9rem' }}>{whiteningText(done[s].edges.measured)}</div>
+                {!done[s].edges.combined && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Edges checked from one photo.</div>}
+              </>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => onRedo(s)}>Redo the {s}</button>
             {sendButton(s)}
           </section>
@@ -281,6 +431,31 @@ function Result({ done, settings, onRedo, onAnother, sendButton }) {
         {!done.back && <button className="btn btn-ghost" onClick={() => onRedo('back')}>Add the back</button>}
       </div>
     </>
+  );
+}
+
+// "Whitening: 3.1 mm along the edges, up to 0.25 mm deep (2 corners)"
+function whiteningText(m) {
+  if (!m || !m.counted) return 'No whitening counted.';
+  const where = [m.corners && `${m.corners} corner${m.corners > 1 ? 's' : ''}`, m.edges && `${m.edges} edge${m.edges > 1 ? 's' : ''}`].filter(Boolean).join(', ');
+  return `Whitening: ${m.lengthMm} mm in all, up to ${m.depthMm} mm deep (${where}).`;
+}
+
+// The edges step's numbers for the side being checked, and what they allow.
+function EdgesNumbers({ edges, face, settings }) {
+  const m = measureEdges(edges.spots, edges.ignored, edges.doubtTracks);
+  const c = edgesCap(face === 'front' ? m : null, face === 'back' ? m : null, settings);
+  return (
+    <div style={{ display: 'grid', gap: 2 }}>
+      <div><b>{whiteningText(m)}</b></div>
+      {c && (
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          The {face}'s edges allow up to {c.cap === settings.edges.floor ? `${c.cap} or lower` : c.cap}
+          {c.low !== c.high ? ` (could be ${c.low}–${c.high})` : ''}.
+          {' '}{edges.combined ? 'Checked with both photos.' : 'Checked from one photo.'}
+        </div>
+      )}
+    </div>
   );
 }
 

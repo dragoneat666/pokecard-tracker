@@ -22,6 +22,7 @@
 // always give the same answer.
 
 import { CENTERING_VERSION, findBorders, measure as measureCentering, centeringCap } from './centering.js';
+import { EDGES_VERSION, scanEdges, findSpots, doubtTracksOf, measureEdges, edgesCap } from './edges.js';
 
 export const ANALYZERS = [
   {
@@ -31,6 +32,21 @@ export const ANALYZERS = [
     find: (image, settings, options) => findBorders(image, settings, options),
     measure: (state, settings) => measureCentering(state.lines, settings.image.pxPerMm),
     cap: ({ front, back }, settings) => centeringCap(front, back, settings),
+  },
+  {
+    // Whitening on the edges and corners. `image` here is the straightened
+    // card WITH a margin of photo round it (options.margin pixels), and a
+    // second photo (turned a quarter turn) can be combined in first; the
+    // Grading page does that itself (grading/edges.js).
+    id: 'edges',
+    version: EDGES_VERSION,
+    label: 'Edges and corners',
+    find: (image, settings, { margin }) => {
+      const scan = scanEdges(image, margin, settings);
+      return { scan, spots: findSpots(scan, settings), doubtTracks: doubtTracksOf(scan, settings), ignored: [] };
+    },
+    measure: (state) => measureEdges(state.spots, state.ignored, state.doubtTracks),
+    cap: ({ front, back }, settings) => edgesCap(front, back, settings),
   },
 ];
 

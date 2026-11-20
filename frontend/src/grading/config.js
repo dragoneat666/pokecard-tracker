@@ -102,6 +102,79 @@ export const GRADING_DEFAULTS = {
       backFrame: { leftRightMm: 6.3, topBottomMm: 6.95, maxOffMm: 1 },
     },
   },
+
+  // Edges and corners: whitening (grading/edges.js).
+  edges: {
+    // Photo kept round the straightened card, so the background shows.
+    marginMm: 1.2,
+    // Each line across the edge starts this far outside the card and reaches
+    // this far in.
+    outsideMm: 1,
+    insideMm: 2.5,
+    // Card corners are rounded to about this radius (measured on phone
+    // photos: 2.5-3.5 mm, with the photo's own blur).
+    cornerRadiusMm: 3,
+    // The card starts where the colour differs from the background outside
+    // by more than this (0-441 RGB distance), 3 pixels in a row.
+    minStep: 40,
+    // The border's colour is read this far in from the card's edge (past
+    // any wear), then smoothed along the edge over this distance each way.
+    refFromMm: 1,
+    refToMm: 1.6,
+    refSmoothMm: 0.8,
+    // Where that reading is darker than the edge's plain border colour (the
+    // reading brighter than this share of all of them along the edge; print
+    // in the border makes readings darker), the plain colour is used.
+    usualShare: 0.8,
+    // Whitening only shows against a dark background: where the background
+    // outside the edge is brighter than this (0-255), the edge isn't read.
+    maxBackground: 110,
+    // A pixel is whitened when it has moved at least this share of the way
+    // from the border's colour towards white, and is this much brighter.
+    // (Worn card stock came out 0.7-0.9 of the way on blue, yellow and
+    // silver borders; the lighter outer band printed on some silver borders
+    // about 0.4.)
+    minWhite: 0.5,
+    minLighter: 20,
+    // ...and the whitened stretch must be at least this much brighter than
+    // the border just past its inner end (wear stops sharply; the sheen on a
+    // silver border fades gradually and doesn't count).
+    minStepIn: 20,
+    // Whitening is looked for this deep from the edge.
+    maxDepthMm: 1.2,
+    // A spot: whitened at least this many pixels deep (0.05 mm each)...
+    minDepthPx: 2,
+    // ...along at least this much of the edge; spots closer together than
+    // mergeMm count as one.
+    minRunMm: 0.15,
+    mergeMm: 0.5,
+    // More than this share of the card blown out by glare gets a warning
+    // (whitening can't be seen under it).
+    glareWarnShare: 0.002,
+    // The two photos' outlines may differ by this many pixels along an edge.
+    alignPx: 3,
+    // With one photo, an edge with "whitening" along more than this share of
+    // its length is probably glinting in the light: it and its corners are
+    // "in doubt" and not counted. (On phone photos of pack-fresh backs,
+    // glinting edges came out at 0.2-0.4 and the others under 0.05.)
+    litShare: 0.1,
+    // The most whitening each grade allows, per side of the card: the total
+    // length of all spots (mm) and the deepest spot (mm). A rough guide
+    // only: graders judge wear by eye, and are more forgiving on the back.
+    grades: [
+      { grade: 10, front: { lengthMm: 0.5, depthMm: 0.2 }, back: { lengthMm: 1.5, depthMm: 0.2 } },
+      { grade: 9,  front: { lengthMm: 2,   depthMm: 0.3 }, back: { lengthMm: 5,   depthMm: 0.3 } },
+      { grade: 8,  front: { lengthMm: 5,   depthMm: 0.5 }, back: { lengthMm: 12,  depthMm: 0.5 } },
+      { grade: 7,  front: { lengthMm: 12,  depthMm: 0.8 }, back: { lengthMm: 25,  depthMm: 0.8 } },
+      { grade: 6,  front: { lengthMm: 25,  depthMm: 1.2 }, back: { lengthMm: 50,  depthMm: 1.2 } },
+    ],
+    floor: 5,
+    // Close call: the numbers this much either way (a share of the length,
+    // plus closeMinMm, and closeDepthMm of depth) would give another grade.
+    closeShare: 0.25,
+    closeMinMm: 0.3,
+    closeDepthMm: 0.05,
+  },
 };
 
 // Settings = defaults with any saved overrides laid on top (deep merge; arrays

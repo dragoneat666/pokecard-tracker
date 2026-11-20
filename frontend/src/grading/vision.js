@@ -144,11 +144,13 @@ export function detailOf(quad) {
   return long / 88;
 }
 
-// The card cut out and flattened to CARD_W x CARD_H, as ImageData.
-export async function straighten(bitmap, quad) {
+// The card cut out and flattened to CARD_W x CARD_H, as ImageData. margin:
+// pixels of the photo kept all round the card (the edges check needs to see
+// where the card stops), making the picture 2 x margin bigger each way.
+export async function straighten(bitmap, quad, { margin = 0 } = {}) {
   const src = pixelsOf(bitmap, WARP_SIDE);
   const { image } = await call('warp', {
-    image: src.data, quad: toCopy(quad, src), width: CARD_W, height: CARD_H,
+    image: src.data, quad: toCopy(quad, src), width: CARD_W, height: CARD_H, margin,
   }, [src.data.data.buffer]);
   return image;
 }

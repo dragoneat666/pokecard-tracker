@@ -60,7 +60,8 @@ router.post('/test-photos', (req, res) => {
       if (folderBytes() + req.file.size > MAX_FOLDER) {
         return res.status(507).json({ error: 'The test photo folder is full (3 GB). Ask for the old ones to be cleared out.' });
       }
-      const side = meta.side === 'back' ? 'back' : 'front';
+      // the side's own photo, or its second photo turned sideways (edges check)
+      const side = (meta.side === 'back' ? 'back' : 'front') + (meta.turned ? '-turned' : '');
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
       const name = `${stamp}-${side}-${crypto.randomBytes(3).toString('hex')}`;
       fs.writeFileSync(path.join(DIR, `${name}.${ext}`), req.file.buffer);

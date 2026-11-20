@@ -43,14 +43,15 @@ const CAMERA_KEY = 'pokecard.grading.camera';
 
 export const canUseLiveCamera = () => !!(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
 
-export default function CameraCapture({ sideName, onPhoto }) {
+// guide: 'portrait' (the card upright) or 'landscape' (lying sideways).
+export default function CameraCapture({ sideName, onPhoto, guide = 'portrait' }) {
   const live = canUseLiveCamera();
   const [failed, setFailed] = useState('');
   const fromFile = (file) => onPhoto(file, { how: 'file', fileName: file.name, fileType: file.type });
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
       {live && !failed
-        ? <LiveCamera sideName={sideName} onPhoto={onPhoto} onFail={setFailed} />
+        ? <LiveCamera sideName={sideName} onPhoto={onPhoto} onFail={setFailed} guide={guide} />
         : (
           <div className="panel" style={{ display: 'grid', gap: 'var(--space-3)' }}>
             {failed && <p style={{ margin: 0, color: 'var(--danger)' }}>{failed}</p>}
@@ -77,7 +78,7 @@ function FileButton({ label, capture = false, onFile, primary = false }) {
 const savedCamera = () => { try { return localStorage.getItem(CAMERA_KEY) || ''; } catch { return ''; } };
 const saveCamera = (id) => { try { if (id) localStorage.setItem(CAMERA_KEY, id); else localStorage.removeItem(CAMERA_KEY); } catch { /* private mode */ } };
 
-function LiveCamera({ sideName, onPhoto, onFail }) {
+function LiveCamera({ sideName, onPhoto, onFail, guide }) {
   const videoRef = useRef(null), overlayRef = useRef(null);
   const streamRef = useRef(null);
   const [cameraId, setCameraId] = useState(savedCamera);
@@ -234,7 +235,8 @@ function LiveCamera({ sideName, onPhoto, onFail }) {
       // where the video sits inside its box (object-fit: contain)
       const k = Math.min(w / fw, h / fh), ox = (w - fw * k) / 2, oy = (h - fh * k) / 2;
       // a guide in the card's shape
-      const gh = fh * k * 0.85, gw = gh * 63 / 88;
+      let gh = fh * k * 0.85, gw = gh * 63 / 88;
+      if (guide === 'landscape') { gw = Math.min(fw * k * 0.85, fh * k * 0.85 * 88 / 63); gh = gw * 63 / 88; }
       ctx.strokeStyle = 'rgba(255,255,255,0.45)';
       ctx.setLineDash([8, 6]);
       ctx.lineWidth = 1.5;

@@ -6,17 +6,20 @@
 // kept in this browser only (they are tried out here before becoming the
 // saved settings).
 //
-// Also used by automated tests: window.gradingLab.run(url) runs every step on
-// a photo and answers the numbers (no pictures).
+// Also used by automated tests: window.gradingLab.run(url, { turned: url2 })
+// runs every step on a photo (and its sideways photo for the edges check) and
+// answers the numbers (no pictures).
 
 import { useEffect, useRef, useState } from 'react';
 import { GRADING_DEFAULTS, mergeSettings, LAB_SETTINGS_KEY as STORE_KEY, labOverrides as loadOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, straighten, turnQuad, warmUp, cardFromScan, detailOf } from '../grading/vision.js';
 import { analyzer } from '../grading/analyzers.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
+import EdgesReview from '../components/grading/EdgesReview.jsx';
 
 // Every step on one photo. Answers the numbers plus the pictures for the page.
 // straight: the picture is already just the card (a scan) — skip finding it.
-async function runPipeline(source, settings, { turn = false, straight = false, back = false } = {}) {
+async function runPipeline(source, settings, { turn = false, straight = false, back = false, turned = null } = {}) {
   const times = {};
   const t = async (name, fn) => { const s = performance.now(); const r = await fn(); times[name] = Math.round(performance.now() - s); return r; };
   const bitmap = await t('load', () => loadPhoto(source));
@@ -32,7 +35,34 @@ async function runPipeline(source, settings, { turn = false, straight = false, b
   const centering = analyzer('centering');
   const borders = await t('borders', () => centering.find(image, settings, { face: back ? 'back' : 'front' }));
   const measured = centering.measure(borders, settings);
-  return { bitmap, found, image, borders, measured, times };
+  // Edges: the photo straightened again with a margin round the card, and
+  // the sideways photo if there is one.
+  let edges = null;
+  if (!straight) {
+    const margin = Math.round(settings.edges.marginMm * settings.image.pxPerMm);
+    const imageM = await t('straighten+margin', () => straighten(bitmap, found.quad, { margin }));
+    let scan = await t('edges', () => scanEdges(imageM, margin, settings));
+    let imageB = null, wayB = null, errorB = null;
+    if (turned) {
+      const bitmapB = await loadPhoto(turned);
+      const foundB = await findCard(bitmapB);
+      if (foundB.quad) {
+        imageB = await straighten(bitmapB, foundB.quad, { margin });
+        wayB = sameWayUp(imageM, imageB, margin);
+        if (wayB < 0) imageB = turnImage(imageB);
+        const scanB = await t('edges 2', () => scanEdges(imageB, margin, settings));
+        scan = combineScans(scan, scanB, settings);
+      } else errorB = 'No card found in the sideways photo';
+      bitmapB.close?.();
+    }
+    const spots = findSpots(scan, settings);
+    const doubtTracks = doubtTracksOf(scan, settings);
+    edges = {
+      scan, spots, doubtTracks, ignored: [], combined: !!scan.combined, margin, image: imageM, imageB,
+      wayB, errorB, glare: glareShare(imageM, margin),
+    };
+  }
+  return { bitmap, found, image, borders, measured, edges, times };
 }
 
 export default function GradingLab() {
@@ -46,6 +76,7 @@ export default function GradingLab() {
   const [turn, setTurn] = useState(false);
   const [straight, setStraight] = useState(false);
   const [back, setBack] = useState(false);
+  const [turned, setTurned] = useState(null);      // the sideways photo (File), for the edges check
   const lastSource = useRef(null);
   const settings = mergeSettings(overrides);
 
@@ -62,6 +93,12 @@ export default function GradingLab() {
           quad: r.found?.quad || null, rough: r.found?.rough, bendMm: r.found?.bendMm, score: r.found?.score, strategy: r.found?.strategy, candidates: r.found?.candidates,
           lines: r.borders?.lines, sides: r.borders?.sides, border: r.borders?.border, threshold: r.borders?.threshold,
           measured: r.measured, times: r.times, error: r.error,
+          edges: r.edges && {
+            combined: r.edges.combined, wayB: r.edges.wayB, errorB: r.edges.errorB, lit: r.edges.scan.lit, unread: r.edges.scan.unread,
+            glare: r.edges.glare, doubtTracks: r.edges.doubtTracks,
+            spots: r.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt }) => ({ id, track, from, to, lengthMm, depthMm, doubt })),
+            measured: measureEdges(r.edges.spots, [], r.edges.doubtTracks),
+          },
         };
       },
     };
@@ -72,7 +109,7 @@ export default function GradingLab() {
     lastSource.current = source;
     setBusy(true); setError('');
     try {
-      const r = await runPipeline(source, settings, { turn, straight, back });
+      const r = await runPipeline(source, settings, { turn, straight, back, turned });
       if (r.error) setError(r.error);
       setResult(r);
     } catch (err) {
@@ -122,6 +159,9 @@ export default function GradingLab() {
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="The back of a card (its printed frame is a known size)">
             <input type="checkbox" checked={back} onChange={e => setBack(e.target.checked)} /> Card back
           </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="The same side with the card turned a quarter turn, for the edges check (pick it before the main photo, or tap Run again)">
+            Sideways photo <input type="file" accept="image/*" onChange={e => setTurned(e.target.files[0] || null)} />
+          </label>
           {lastSource.current && <button className="btn btn-ghost" disabled={busy} onClick={() => run(lastSource.current)}>Run again</button>}
           {busy && <span style={{ color: 'var(--text-muted)' }}>Working…</span>}
         </div>
@@ -157,6 +197,14 @@ export default function GradingLab() {
               ]} />
             </section>
           )}
+          {result.edges && (
+            <section style={panel}>
+              <h2 style={h2}>3. Edges and corners</h2>
+              <EdgesReview edges={result.edges}
+                onToggle={id => setResult(r => ({ ...r, edges: { ...r.edges, ignored: r.edges.ignored.includes(id) ? r.edges.ignored.filter(x => x !== id) : [...r.edges.ignored, id] } }))} />
+              <Numbers rows={edgeRows(result.edges, back ? 'back' : 'front', settings)} />
+            </section>
+          )}
         </div>
       )}
 
@@ -172,6 +220,19 @@ export default function GradingLab() {
       </section>
     </div>
   );
+}
+
+function edgeRows(edges, face, settings) {
+  const m = measureEdges(edges.spots, edges.ignored, edges.doubtTracks);
+  const c = edgesCap(face === 'front' ? m : null, face === 'back' ? m : null, settings);
+  return [
+    ['Photos', edges.combined ? `both (sideways photo ${edges.wayB < 0 ? 'turned half a turn to line up' : 'lined up as it was'})` : edges.errorB || 'one'],
+    ['Lit share', Object.entries(edges.scan.lit).map(([k, v]) => `${k} ${v}`).join(', ') + ` (in doubt from ${settings.edges.litShare})`],
+    ['Not read', `${Math.round(edges.scan.unread * 1000) / 10}% of the outline`],
+    ['Glare', `${Math.round(edges.glare * 10000) / 100}% of the card`],
+    ['Counted', `${m.lengthMm} mm, up to ${m.depthMm} mm deep, ${m.corners} corners, ${m.edges} edges (${m.counted} spots)`],
+    ['Allows', c ? `${c.cap} (${c.low}–${c.high}) as the ${face}` : '—'],
+  ];
 }
 
 function PhotoOutline({ bitmap, quad }) {
