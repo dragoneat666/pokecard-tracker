@@ -37,6 +37,9 @@ export default function Grading() {
   const [error, setError] = useState('');
   const [work, setWork] = useState(null);        // the side being worked on
   const [done, setDone] = useState({});          // { front: {...}, back: {...} } finished sides
+  // Test photos being sent / sent (an upload can take a minute over a slow
+  // link, so it carries on while the next steps are done).
+  const [uploads, setUploads] = useState([]);
   const settings = useRef(mergeSettings(labOverrides())).current;
   const usingLab = Object.keys(labOverrides()).length > 0;
   const bitmapRef = useRef(null);
@@ -81,7 +84,7 @@ export default function Grading() {
     setWork({
       bitmap, quad, foundQuad: quad, found: !!found.quad, cutOff: !!found.cutOff,
       bendMm: found.bendMm || null, strategy: found.strategy || null,
-      photo, camera, photoSize: [bitmap.width, bitmap.height], sent: false,
+      photo, camera, photoSize: [bitmap.width, bitmap.height],
     });
     setStep('corners');
   });
@@ -102,7 +105,7 @@ export default function Grading() {
 
   function finishSide() {
     const measured = centering.measure({ lines: work.lines }, settings);
-    const result = { ...work, bitmap: null, measured, sent: false };
+    const result = { ...work, bitmap: null, measured };
     const next = { ...done, [side]: result };
     setDone(next);
     freeBitmap();
@@ -110,6 +113,25 @@ export default function Grading() {
     if (side === 'front' && !next.back) { setSide('back'); setStep('capture'); }
     else setStep('result');
   }
+
+  // Sends a side's photo (exactly as taken) and what was found in it to the
+  // server, for tuning (routes/gradingTests.js). stage: 'corners' (before the
+  // lines are set) or 'result' (with the measurements).
+  function sendTest(data, stage) {
+    const id = `${Date.now()}-${Math.random()}`;
+    setUploads(u => [...u.slice(-5), { id, photo: data.photo, stage, side: data.side, status: 'sending' }]);
+    const meta = {
+      side: data.side, stage, appVersion: APP_VERSION, native: isNative,
+      camera: data.camera, photoSize: data.photoSize,
+      found: { ok: data.found, cutOff: data.cutOff, strategy: data.strategy, quad: data.foundQuad },
+      quad: data.quad, bendMm: data.bendMm, detailPxPerMm: Math.round(detailOf(data.quad) * 10) / 10,
+      lines: data.lines || null, foundLines: data.foundLines || null, measured: data.measured || null,
+      labSettings: labOverrides(),
+    };
+    const set = (status) => setUploads(u => u.map(x => (x.id === id ? { ...x, status } : x)));
+    api.grading.sendTestPhoto(data.photo, meta).then(() => set('sent'), err => set(err.message || 'failed'));
+  }
+  const uploadOf = (photo, stage) => [...uploads].reverse().find(u => u.photo === photo && u.stage === stage);
 
   function redoSide(which) {
     freeBitmap();
@@ -128,6 +150,7 @@ export default function Grading() {
       </div>
       {usingLab && <p style={{ margin: 0, color: 'var(--warning)', fontSize: '0.85rem' }}>Using settings changed on the tuning page.</p>}
       {error && <p style={{ margin: 0, color: 'var(--danger)' }}>{error}</p>}
+      <UploadStatus uploads={uploads} />
 
       {step === 'home' && <Home onStart={start} />}
 
@@ -159,7 +182,7 @@ export default function Grading() {
             <button className="btn btn-ghost" onClick={() => setWork(w => ({ ...w, quad: w.foundQuad }))}>Reset</button>
             <button className="btn btn-ghost" onClick={() => redoSide(side)}>Retake</button>
           </div>
-          <SendTest data={{ ...work, side }} onSent={() => setWork(w => ({ ...w, sent: true }))} />
+          <SendTest upload={uploadOf(work.photo, 'corners')} onSend={() => sendTest({ ...work, side }, 'corners')} hasPhoto={!!work.photo} />
         </section>
       )}
 
@@ -181,7 +204,7 @@ export default function Grading() {
       )}
 
       {step === 'result' && <Result done={done} settings={settings} onRedo={redoSide} onAnother={start}
-        onSent={s => setDone(d => ({ ...d, [s]: { ...d[s], sent: true } }))} />}
+        sendButton={s => <SendTest upload={uploadOf(done[s].photo, 'result')} onSend={() => sendTest({ ...done[s], side: s }, 'result')} hasPhoto={!!done[s].photo} small />} />}
     </div>
   );
 }
@@ -221,7 +244,7 @@ function Home({ onStart }) {
   );
 }
 
-function Result({ done, settings, onRedo, onAnother, onSent }) {
+function Result({ done, settings, onRedo, onAnother, sendButton }) {
   const cap = centering.cap({ front: done.front?.measured, back: done.back?.measured }, settings);
   const range = cap && cap.low !== cap.high ? `${cap.low}–${cap.high}` : null;
   return (
@@ -249,7 +272,7 @@ function Result({ done, settings, onRedo, onAnother, onSent }) {
               </tbody>
             </table>
             <button className="btn btn-ghost btn-sm" onClick={() => onRedo(s)}>Redo the {s}</button>
-            <SendTest data={{ ...done[s], side: s }} onSent={() => onSent(s)} small />
+            {sendButton(s)}
           </section>
         ))}
       </div>
@@ -305,36 +328,38 @@ function PhotoChecks({ work, settings }) {
   );
 }
 
-// Sends this side's photo (exactly as taken) and what was found in it to the
-// server, for tuning (routes/gradingTests.js).
-function SendTest({ data, onSent, small = false }) {
-  const [state, setState] = useState('');   // '' | sending | error message
-  if (!data.photo) return null;
-  if (data.sent) return <div style={{ fontSize: '0.85rem', color: 'var(--success)' }}>✓ Sent for testing</div>;
-  async function send() {
-    setState('sending');
-    try {
-      await api.grading.sendTestPhoto(data.photo, {
-        side: data.side, appVersion: APP_VERSION, native: isNative,
-        camera: data.camera, photoSize: data.photoSize,
-        found: { ok: data.found, cutOff: data.cutOff, strategy: data.strategy, quad: data.foundQuad },
-        quad: data.quad, bendMm: data.bendMm, detailPxPerMm: Math.round(detailOf(data.quad) * 10) / 10,
-        lines: data.lines || null, foundLines: data.foundLines || null, measured: data.measured || null,
-        labSettings: labOverrides(),
-      });
-      setState('');
-      onSent();
-    } catch (err) {
-      setState(err.message);
-    }
+// The "Send for testing" button for one side, or how its upload is going.
+function SendTest({ upload, onSend, hasPhoto, small = false }) {
+  if (!hasPhoto) return null;
+  if (upload?.status === 'sent') return <div style={{ fontSize: '0.85rem', color: 'var(--success)' }}>✓ Sent for testing</div>;
+  if (upload?.status === 'sending') {
+    return <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>📤 Sending… you can carry on, it keeps going.</div>;
   }
   return (
     <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
-      <button className={`btn btn-ghost${small ? ' btn-sm' : ''}`} disabled={state === 'sending'} onClick={send}>
-        {state === 'sending' ? 'Sending…' : '📤 Send for testing'}
+      <button className={`btn btn-ghost${small ? ' btn-sm' : ''}`} onClick={onSend}>
+        {upload ? '📤 Try sending again' : '📤 Send for testing'}
       </button>
-      {state && state !== 'sending' && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{state}</span>}
+      {upload && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>Didn't send: {upload.status}</span>}
     </div>
+  );
+}
+
+// One line at the top of the page while test photos are on their way, so an
+// upload started on an earlier step can still be seen finishing.
+function UploadStatus({ uploads }) {
+  const sending = uploads.filter(u => u.status === 'sending');
+  const failed = uploads.filter(u => u.status !== 'sending' && u.status !== 'sent');
+  const sent = uploads.filter(u => u.status === 'sent');
+  if (!sending.length && !failed.length) {
+    return sent.length ? <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--success)' }}>✓ Test photos sent: {sent.length}</p> : null;
+  }
+  return (
+    <p style={{ margin: 0, fontSize: '0.85rem', color: failed.length ? 'var(--danger)' : 'var(--text-secondary)' }}>
+      {sending.length > 0 && `📤 Sending ${sending.length} test photo${sending.length > 1 ? 's' : ''}… `}
+      {sent.length > 0 && `✓ ${sent.length} sent. `}
+      {failed.length > 0 && `${failed.length} didn't send (${failed[failed.length - 1].status}).`}
+    </p>
   );
 }
 
