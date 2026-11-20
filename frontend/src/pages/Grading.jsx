@@ -98,7 +98,7 @@ export default function Grading() {
   // Straighten with these corners and find the border lines.
   const toCentering = (quad = work.quad) => busy('Straightening the card…', async () => {
     const image = await straighten(work.bitmap, quad);
-    const borders = centering.find(image, settings);
+    const borders = centering.find(image, settings, { face: side });
     setWork(w => ({ ...w, quad, image, lines: borders.lines, foundLines: borders.lines, sides: borders.sides }));
     setStep('centering');
   });

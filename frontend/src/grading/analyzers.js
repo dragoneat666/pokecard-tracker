@@ -9,8 +9,9 @@
 //   version   bump when the analyzer's maths changes, so old saved results
 //             can be told apart from new ones (and re-run if wanted)
 //   label     shown on the page
-//   find(image, settings)              -> a first guess the user can adjust
-//                                          (for centering: the 8 border lines)
+//   find(image, settings, { face })    -> a first guess the user can adjust
+//                                          (for centering: the 8 border lines);
+//                                          face: 'front' | 'back'
 //   measure(state, settings)           -> numbers from the (adjusted) guess
 //   cap({ front, back }, settings)     -> { cap, low, high, reason } — the best
 //                                          grade this check allows, from both
@@ -27,7 +28,7 @@ export const ANALYZERS = [
     id: 'centering',
     version: CENTERING_VERSION,
     label: 'Centering',
-    find: (image, settings) => findBorders(image, settings),
+    find: (image, settings, options) => findBorders(image, settings, options),
     measure: (state, settings) => measureCentering(state.lines, settings.image.pxPerMm),
     cap: ({ front, back }, settings) => centeringCap(front, back, settings),
   },

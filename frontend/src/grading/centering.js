@@ -45,7 +45,9 @@ const SIDES = ['left', 'right', 'top', 'bottom'];
 // lines = x positions of the left / right lines and y positions of the top /
 // bottom lines, in the straightened image, measured from its top-left corner
 // (the card's edges are at 0 and the picture's width / height).
-export function findBorders(image, settings) {
+// face: 'front' or 'back' (the back's printed frame is the same size on every
+// card, which helps where its edge is faint: see backFrame in config.js).
+export function findBorders(image, settings, { face = 'front' } = {}) {
   const { width: W, height: H, data } = image;
   const b = settings.centering.border;
   const pxPerMm = W / 63;
@@ -100,7 +102,7 @@ export function findBorders(image, settings) {
 
   const hits = {}, sides = {}, tilt = {};
   for (const side of SIDES) {
-    const { ts, depth, maxD, dist, col } = per[side];
+    const { ts, depth, maxD, dist } = per[side];
     const n = ts.length;
     // 2. Rough depth: the first depth where nearly all lines look "not border"
     // (for runLength depths in a row). The frame's edge runs the whole length
@@ -122,77 +124,93 @@ export function findBorders(image, settings) {
       }
       if (rough !== null) break;
     }
+    per[side].shares = shares;
+    const placed = rough === null ? { found: [] } : placeEdge(side, rough);
+    record(side, placed);
+  }
+
+  // 3. The exact edge near a rough depth (see the top of the file). Answers
+  // { found: each line's edge depth, tilt }.
+  function placeEdge(side, rough) {
+    const { ts, depth, maxD, col, shares } = per[side];
+    const n = ts.length;
     const found = [];
-    if (rough !== null) {
-      // 3. The exact edge: the strongest colour change near the rough depth,
-      // averaged over all the lines (so it is the frame's edge, which every
-      // line crosses). The search reaches back towards the card's edge only
-      // as far as the change keeps covering a good share of the lines: print
-      // in the border sits beyond a gap of plain border and stays out.
-      //   Strongest change, rather than "first change", because some borders
-      // fade (older yellow borders go from yellow to almost white towards the
-      // inside), and where a fading border "stops" is a matter of opinion
-      // that came out different on each side. The frame's own edge is sharp
-      // and the same on all four sides.
-      let lo = rough;
-      while (lo - 1 > to && lo > rough - near && shares[lo - 1] >= b.reachShare) lo--;
-      lo = Math.max(lo - 2, to + 1);
-      const hi = Math.min(maxD - 2, rough + near);
-      const grad = (li, d) => {
-        const i = (li * depth + d - 1) * 3, j = (li * depth + d + 1) * 3;
-        const dr = col[j] - col[i], dg = col[j + 1] - col[i + 1], db = col[j + 2] - col[i + 2];
-        return Math.sqrt(dr * dr + dg * dg + db * db);
-      };
-      const sums = new Float32Array(hi + 2);
-      let best = -1;
-      for (let d = lo; d <= hi; d++) {
-        let sum = 0;
-        for (let li = 0; li < n; li++) sum += grad(li, d);
-        sums[d] = sum;
-        if (sum > best) best = sum;
-      }
-      // A frame often has a light or dark edge line of its own (a thin
-      // highlight along the panel). Its outer edge is where the frame starts,
-      // so the outermost change nearly as strong as the strongest one wins.
-      let edge = lo;
-      for (let d = lo; d <= hi; d++) {
-        if (sums[d] >= b.outerEdgeShare * best && sums[d] >= sums[d - 1] && sums[d] >= sums[d + 1]) { edge = d; break; }
-      }
-      const meanBest = sums[edge] / Math.max(1, n);
-      // Each line: its own strongest change within a few pixels of that edge,
-      // placed between pixels by fitting a curve through the three values
-      // around the peak.
-      const reach = b.lineReachPx;
-      const peakNear = (li, centre) => {
-        let m = -1, g = -1;
-        const c = Math.round(centre);
-        for (let d = Math.max(2, c - reach); d <= Math.min(maxD - 2, c + reach); d++) {
-          const v = grad(li, d);
-          if (v > g) { g = v; m = d; }
-        }
-        if (m < 0 || g < b.lineMinShare * meanBest) return null;
-        const g0 = grad(li, m - 1), g2 = grad(li, m + 1);
-        const den = g0 - 2 * g + g2;
-        const offset = den < 0 ? Math.max(-0.5, Math.min(0.5, 0.5 * (g0 - g2) / den)) : 0;
-        // The change measured at pixel m is across that pixel, whose middle is
-        // m + 0.5 from the card's edge.
-        return m + 0.5 + offset;
-      };
-      // First pass around the side's edge depth; then again around a straight
-      // line fitted through the first pass, so a frame printed slightly
-      // crooked (common on badly cut cards) is followed along its length.
-      const first = [];
-      for (let li = 0; li < n; li++) {
-        const p = peakNear(li, edge);
-        if (p !== null) first.push([ts[li], p]);
-      }
-      const fit = first.length >= 8 ? fitDepth(first) : null;
-      for (let li = 0; li < n; li++) {
-        const p = fit ? peakNear(li, fit.a + fit.b * ts[li] - 0.5) : peakNear(li, edge);
-        if (p !== null) found.push(p);
-      }
-      if (fit) tilt[side] = fit.b * (ts[n - 1] - ts[0]);
+    let tiltPx;
+    // The exact edge: the strongest colour change near the rough depth,
+    // averaged over all the lines (so it is the frame's edge, which every
+    // line crosses). The search reaches back towards the card's edge only
+    // as far as the change keeps covering a good share of the lines: print
+    // in the border sits beyond a gap of plain border and stays out.
+    //   Strongest change, rather than "first change", because some borders
+    // fade (older yellow borders go from yellow to almost white towards the
+    // inside), and where a fading border "stops" is a matter of opinion
+    // that came out different on each side. The frame's own edge is sharp
+    // and the same on all four sides.
+    let lo = rough;
+    while (lo - 1 > to && lo > rough - near && shares[lo - 1] >= b.reachShare) lo--;
+    lo = Math.max(lo - 2, to + 1);
+    const hi = Math.min(maxD - 2, rough + near);
+    const grad = (li, d) => {
+      const i = (li * depth + d - 1) * 3, j = (li * depth + d + 1) * 3;
+      const dr = col[j] - col[i], dg = col[j + 1] - col[i + 1], db = col[j + 2] - col[i + 2];
+      return Math.sqrt(dr * dr + dg * dg + db * db);
+    };
+    const sums = new Float32Array(hi + 2);
+    let best = -1;
+    for (let d = lo; d <= hi; d++) {
+      let sum = 0;
+      for (let li = 0; li < n; li++) sum += grad(li, d);
+      sums[d] = sum;
+      if (sum > best) best = sum;
     }
+    // A frame often has a light or dark edge line of its own (a thin
+    // highlight along the panel). Its outer edge is where the frame starts,
+    // so the outermost change nearly as strong as the strongest one wins.
+    let edge = lo;
+    for (let d = lo; d <= hi; d++) {
+      if (sums[d] >= b.outerEdgeShare * best && sums[d] >= sums[d - 1] && sums[d] >= sums[d + 1]) { edge = d; break; }
+    }
+    const meanBest = sums[edge] / Math.max(1, n);
+    // Each line: its own strongest change within a few pixels of that edge,
+    // placed between pixels by fitting a curve through the three values
+    // around the peak.
+    const reach = b.lineReachPx;
+    const peakNear = (li, centre) => {
+      let m = -1, g = -1;
+      const c = Math.round(centre);
+      for (let d = Math.max(2, c - reach); d <= Math.min(maxD - 2, c + reach); d++) {
+        const v = grad(li, d);
+        if (v > g) { g = v; m = d; }
+      }
+      if (m < 0 || g < b.lineMinShare * meanBest) return null;
+      const g0 = grad(li, m - 1), g2 = grad(li, m + 1);
+      const den = g0 - 2 * g + g2;
+      const offset = den < 0 ? Math.max(-0.5, Math.min(0.5, 0.5 * (g0 - g2) / den)) : 0;
+      // The change measured at pixel m is across that pixel, whose middle is
+      // m + 0.5 from the card's edge.
+      return m + 0.5 + offset;
+    };
+    // First pass around the side's edge depth; then again around a straight
+    // line fitted through the first pass, so a frame printed slightly
+    // crooked (common on badly cut cards) is followed along its length.
+    const first = [];
+    for (let li = 0; li < n; li++) {
+      const p = peakNear(li, edge);
+      if (p !== null) first.push([ts[li], p]);
+    }
+    const fit = first.length >= 8 ? fitDepth(first) : null;
+    for (let li = 0; li < n; li++) {
+      const p = fit ? peakNear(li, fit.a + fit.b * ts[li] - 0.5) : peakNear(li, edge);
+      if (p !== null) found.push(p);
+    }
+    if (fit) tiltPx = fit.b * (ts[n - 1] - ts[0]);
+    return { found, tilt: tiltPx };
+  }
+
+  // 4. The side's width (median of the lines) and how sure it is.
+  function record(side, { found, tilt: tiltPx }, extra = {}) {
+    const n = per[side].ts.length;
+    if (tiltPx !== undefined) tilt[side] = tiltPx; else delete tilt[side];
     found.sort((x, y) => x - y);
     const width = found.length ? quantile(found, 0.5) : null;
     const spread = found.length >= 4 ? quantile(found, 0.75) - quantile(found, 0.25) : null;
@@ -205,14 +223,52 @@ export function findBorders(image, settings) {
       // how much deeper the frame is at one end of the measured stretch than
       // at the other, in mm (a frame printed crooked)
       tiltMm: tilt[side] === undefined ? null : round(tilt[side] / pxPerMm, 2),
+      ...extra,
     };
   }
 
+  // 5. The back of every card has the same printed frame, so its left + right
+  // borders (and top + bottom) always add up to the same width, however
+  // off-centre it is. Where the swirl next to the border is nearly the
+  // border's own blue, a side's search can run on past the frame into the
+  // swirl (seen on real photos: a right border found at 8 mm, when the left
+  // was 3.4 mm and the pair should make 6.3 mm). When a pair is far off its
+  // total, keep one side and look again for the other where the frame has to
+  // be; of the two ways round, the one whose new edge is clearest wins.
+  const frame = b.backFrame;
+  const pairs = [['left', 'right', frame?.leftRightMm], ['top', 'bottom', frame?.topBottomMm]];
+  if (face === 'back' && frame) {
+    for (const [a, z, totalMm] of pairs) {
+      const total = totalMm * pxPerMm;
+      const known = [a, z].filter(sd => hits[sd] !== null);
+      if (known.length === 2 && Math.abs(hits[a] + hits[z] - total) <= frame.maxOffMm * pxPerMm) continue;
+      let best = null;
+      for (const keep of known) {
+        const other = keep === a ? z : a;
+        const want = total - hits[keep];
+        if (want < to + 2 || want > per[other].maxD - near) continue;
+        const placed = placeEdge(other, Math.round(want));
+        const found = placed.found.filter(p => Math.abs(p - want) <= near + 2);
+        if (found.length < 0.3 * per[other].ts.length) continue;
+        const sorted = [...found].sort((x, y) => x - y);
+        const spread = sorted.length >= 4 ? quantile(sorted, 0.75) - quantile(sorted, 0.25) : null;
+        const conf = confidenceOf(found.length / per[other].ts.length, spread, pxPerMm);
+        if (!best || conf > best.conf) best = { other, placed: { ...placed, found }, conf };
+      }
+      if (best) record(best.other, best.placed, { fromBackFrame: true });
+    }
+  }
+
   // A side where nothing was found gets the same width as its opposite side
-  // (shown as a guess, to be placed by hand).
+  // (shown as a guess, to be placed by hand); on the back, what the frame
+  // leaves for it.
   const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
+  const totalOf = { left: frame?.leftRightMm, right: frame?.leftRightMm, top: frame?.topBottomMm, bottom: frame?.topBottomMm };
   for (const side of SIDES) {
-    if (hits[side] === null) hits[side] = hits[opposite[side]] ?? Math.round(3 * pxPerMm);
+    if (hits[side] !== null) continue;
+    const opp = hits[opposite[side]];
+    if (face === 'back' && frame && opp !== null && totalOf[side] * pxPerMm - opp > to) hits[side] = totalOf[side] * pxPerMm - opp;
+    else hits[side] = opp ?? Math.round(3 * pxPerMm);
   }
 
   return {

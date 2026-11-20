@@ -16,7 +16,7 @@ import { analyzer } from '../grading/analyzers.js';
 
 // Every step on one photo. Answers the numbers plus the pictures for the page.
 // straight: the picture is already just the card (a scan) — skip finding it.
-async function runPipeline(source, settings, { turn = false, straight = false } = {}) {
+async function runPipeline(source, settings, { turn = false, straight = false, back = false } = {}) {
   const times = {};
   const t = async (name, fn) => { const s = performance.now(); const r = await fn(); times[name] = Math.round(performance.now() - s); return r; };
   const bitmap = await t('load', () => loadPhoto(source));
@@ -30,7 +30,7 @@ async function runPipeline(source, settings, { turn = false, straight = false } 
     image = await t('straighten', () => straighten(bitmap, found.quad));
   }
   const centering = analyzer('centering');
-  const borders = await t('borders', () => centering.find(image, settings));
+  const borders = await t('borders', () => centering.find(image, settings, { face: back ? 'back' : 'front' }));
   const measured = centering.measure(borders, settings);
   return { bitmap, found, image, borders, measured, times };
 }
@@ -45,6 +45,7 @@ export default function GradingLab() {
   const [result, setResult] = useState(null);
   const [turn, setTurn] = useState(false);
   const [straight, setStraight] = useState(false);
+  const [back, setBack] = useState(false);
   const lastSource = useRef(null);
   const settings = mergeSettings(overrides);
 
@@ -71,7 +72,7 @@ export default function GradingLab() {
     lastSource.current = source;
     setBusy(true); setError('');
     try {
-      const r = await runPipeline(source, settings, { turn, straight });
+      const r = await runPipeline(source, settings, { turn, straight, back });
       if (r.error) setError(r.error);
       setResult(r);
     } catch (err) {
@@ -118,6 +119,9 @@ export default function GradingLab() {
           <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="The picture is already just the card, straight (a scan)">
             <input type="checkbox" checked={straight} onChange={e => setStraight(e.target.checked)} /> Already straight
           </label>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }} title="The back of a card (its printed frame is a known size)">
+            <input type="checkbox" checked={back} onChange={e => setBack(e.target.checked)} /> Card back
+          </label>
           {lastSource.current && <button className="btn btn-ghost" disabled={busy} onClick={() => run(lastSource.current)}>Run again</button>}
           {busy && <span style={{ color: 'var(--text-muted)' }}>Working…</span>}
         </div>
@@ -149,7 +153,7 @@ export default function GradingLab() {
                 ['Border colour', `rgb(${result.borders.border.join(', ')})`],
                 ['Threshold', result.borders.threshold],
                 ...Object.entries(result.borders.sides).map(([side, s]) =>
-                  [`${side}`, `found on ${Math.round(s.share * 100)}% of lines, spread ${s.spreadPx ?? '—'} px, confidence ${s.confidence}`]),
+                  [`${side}`, `found on ${Math.round(s.share * 100)}% of lines, spread ${s.spreadPx ?? '—'} px, confidence ${s.confidence}${s.fromBackFrame ? " (looked for again where the back's frame has to be)" : ""}`]),
               ]} />
             </section>
           )}

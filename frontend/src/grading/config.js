@@ -92,6 +92,14 @@ export const GRADING_DEFAULTS = {
       // and is left out if that change is under this share of the average.
       lineReachPx: 2,
       lineMinShare: 0.3,
+      // The back of every card has the same printed frame, so its left +
+      // right borders always add up to about the same width (mm), as do top +
+      // bottom, however off-centre the card is (measured on phone photos of
+      // backs: 6.24-6.37 and 6.93-6.98). If a back's pair is further off
+      // than maxOffMm, one side was found in the wrong place (the swirl next
+      // to the border is sometimes nearly the border's blue) and it is looked
+      // for again where the frame has to be.
+      backFrame: { leftRightMm: 6.3, topBottomMm: 6.95, maxOffMm: 1 },
     },
   },
 };
