@@ -1,0 +1,22 @@
+# Local settings (the server's address) — never commit
+.env
+*.env
+
+# Data, models and outputs live on E:\pokecard-ai, but just in case
+data/
+models/
+runs/
+crops/
+*.png
+*.jpg
+*.jpeg
+*.pt
+*.pth
+*.onnx
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
