@@ -38,7 +38,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLeaveGuard } from '../leaveGuard.js';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf, edgeStrips } from '../grading/vision.js';
-import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, markSpots, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
 import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
@@ -345,7 +345,7 @@ export default function Grading() {
     return { ...w, edges: { ...w.edges, nickYes: yes.includes(id) ? yes.filter(x => x !== id) : [...yes, id] } };
   });
 
-  // "Add a mark": a nick counts towards the edges, the others tick their
+  // "Add a mark": a nick or whitening counts towards the edges, the others tick their
   // checklist item (at least Slight).
   const addMark = (mark) => setWork(w => {
     const item = MARK_KINDS.find(k => k.id === mark.kind)?.item;
@@ -360,7 +360,7 @@ export default function Grading() {
     const e = work.edges;
     // the turned photos' pictures are let go (only their photos stay, for "Send for testing")
     const extras = (e?.extras || []).map(({ image, scan, ...rest }) => rest);
-    const edges = e && { ...e, extras, measured: measureEdges(e.spots, e.ignored, e.doubtTracks, nickCount(e, work.marks)) };
+    const edges = e && { ...e, extras, measured: measureEdges([...e.spots, ...markSpots(work.marks, settings)], e.ignored, e.doubtTracks, nickCount(e, work.marks)) };
     const result = { ...work, bitmap: null, scanA: null, extras: null, measured, edges };
     const next = { ...done, [side]: result };
     setDone(next);
@@ -730,7 +730,7 @@ function MorePhotos({ edges, onMore }) {
 
 // The edges step's numbers for the side being checked, and what they allow.
 function EdgesNumbers({ edges, marks, face, settings }) {
-  const m = measureEdges(edges.spots, edges.ignored, edges.doubtTracks, nickCount(edges, marks));
+  const m = measureEdges([...edges.spots, ...markSpots(marks, settings)], edges.ignored, edges.doubtTracks, nickCount(edges, marks));
   const c = edgesCap(face === 'front' ? m : null, face === 'back' ? m : null, settings);
   return (
     <div style={{ display: 'grid', gap: 2 }}>

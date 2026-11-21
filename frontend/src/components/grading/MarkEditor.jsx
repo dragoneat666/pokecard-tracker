@@ -3,8 +3,9 @@
 //
 // Tap the card's picture where something is (a nick the edges check missed,
 // a dent, a scratch...), then pick what it is. Marks are kept with the copy
-// ({ id, kind, x, y }, x/y in mm from the card's top-left corner): a nick
-// counts towards the edges, the others tick their checklist item (at least
+// ({ id, kind, x, y }, x/y in mm from the card's top-left corner): a nick or
+// whitening counts towards the edges (whitening as a small spot on the
+// nearest edge or corner), the others tick their checklist item (at least
 // Slight) when added. They also record where each thing is, so a trained
 // checker could learn from them later.
 

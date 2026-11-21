@@ -119,6 +119,9 @@ export const GRADING_DEFAULTS = {
     // Card corners are rounded to about this radius (measured on phone
     // photos: 2.5-3.5 mm, with the photo's own blur).
     cornerRadiusMm: 3,
+    // A "Whitening" mark (the user's own, for a spot the check missed)
+    // counts as a spot this big on the nearest edge or corner.
+    markSpot: { lengthMm: 0.5, depthMm: 0.1 },
     // The card starts where the colour differs from the background outside
     // by more than this (0-441 RGB distance), 3 pixels in a row.
     minStep: 40,

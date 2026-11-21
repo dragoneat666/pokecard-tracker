@@ -484,6 +484,25 @@ function dipsOf(scan, { half, minPx, minRun, maxRun }) {
 // One side's numbers from its spots, leaving out spots in doubt and those
 // marked "not whitening", plus the nicks the user confirmed or added. Answers
 // { lengthMm, depthMm, corners, edges, counted, doubtTracks, nicks }.
+// The user's "Whitening" marks as spots (settings.edges.markSpot in size),
+// each on the track it's nearest to: a corner when it's within the corner's
+// rounding of both edges, otherwise the closest edge. marks: [{ kind, x, y }]
+// in mm from the card's top-left corner.
+export function markSpots(marks, settings) {
+  const { cornerRadiusMm: r, markSpot } = settings.edges;
+  const W = 63, H = 88;
+  return (marks || []).filter(m => m.kind === 'whitening').map(m => {
+    const v = m.y < r ? 't' : m.y > H - r ? 'b' : '';
+    const h = m.x < r ? 'l' : m.x > W - r ? 'r' : '';
+    let track = v && h ? v + h : null;
+    if (!track) {
+      const d = { top: Math.abs(m.y), bottom: Math.abs(H - m.y), left: Math.abs(m.x), right: Math.abs(W - m.x) };
+      track = Object.keys(d).reduce((a, b) => (d[b] < d[a] ? b : a));
+    }
+    return { id: m.id, track, lengthMm: markSpot.lengthMm, depthMm: markSpot.depthMm, mark: true };
+  });
+}
+
 export function measureEdges(spots, ignored = [], doubtTracks = [], nicks = 0) {
   const skip = new Set(ignored);
   const counted = spots.filter(sp => !sp.doubt && !skip.has(sp.id));

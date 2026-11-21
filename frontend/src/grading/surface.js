@@ -19,6 +19,7 @@ export const LEVELS = [
 // (at least Slight) when added.
 export const MARK_KINDS = [
   { id: 'nick', label: 'Nick in the edge', letter: 'N' },
+  { id: 'whitening', label: 'Whitening', letter: 'W' },
   { id: 'dents', label: 'Dent or ding', letter: 'D', item: 'dents' },
   { id: 'scratches', label: 'Scratch or scuff', letter: 'S', item: 'scratches' },
   { id: 'creases', label: 'Crease or bend', letter: 'C', item: 'creases' },
