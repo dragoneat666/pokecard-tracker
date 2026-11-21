@@ -42,6 +42,7 @@ import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, m
 import { analyzer } from '../grading/analyzers.js';
 import { slopesInUse, ratioWords } from '../grading/centering.js';
 import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
+import { imageGrey, sharpnessOf } from '../grading/sharpness.js';
 import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
 import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
@@ -212,6 +213,8 @@ export default function Grading() {
         } : null,
         marks: d.marks || [],
         strips: stripInfo,
+        // each photo's sharpness as taken (first, then the turned ones)
+        sharpness: [d.sharp ?? null, ...(d.edges?.extras || []).map(x => x.sharp ?? null)],
       };
     }
     const result = {
@@ -259,7 +262,9 @@ export default function Grading() {
   const toCentering = (quad = work.quad) => busy('Straightening the card…', async () => {
     const image = await straighten(work.bitmap, quad);
     const borders = centering.find(image, settings, { face: side });
-    setWork(w => ({ ...w, quad, image, lines: borders.lines, foundLines: borders.lines, slopes: borders.slopes, sides: borders.sides, followTilt: true, noBorder: null }));
+    // how sharp the photo itself came out (warned about on the lines page)
+    const sharp = Math.round(sharpnessOf(imageGrey(image)).score * 100) / 100;
+    setWork(w => ({ ...w, quad, image, sharp, lines: borders.lines, foundLines: borders.lines, slopes: borders.slopes, sides: borders.sides, followTilt: true, noBorder: null }));
     setStep('centering');
   });
 
@@ -315,11 +320,18 @@ export default function Grading() {
       if (matchScore(work.imageM, image, work.margin) < settings.edges.minMatch) {
         throw new Error('This photo doesn\'t line up with the first one: it may be out of focus, or the card wasn\'t found right. Take it again.');
       }
+      // out of focus (the camera checks its preview, but the photo itself is
+      // focused and taken separately and can come out blurrier)
+      const sharp = Math.round(sharpnessOf(imageGrey(image, work.margin)).score * 100) / 100;
+      const need = Math.max(settings.edges.minSharp, (work.sharp || 0) * settings.edges.minSharpShare);
+      if (sharp < need) {
+        throw new Error(`This photo came out out of focus (sharpness ${sharp.toFixed(2)}, needs ${need.toFixed(2)}), so small whitening would be missed. Take it again: hold still a moment after it focuses on the card.`);
+      }
       const scan = scanEdges(image, work.margin, settings);
       const n = (work.extras?.length || 0) + 2;
       const strip = startStrips(bitmap, flipped ? turnQuad(found.quad) : found.quad);
       const extras = [...(work.extras || []), {
-        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad, strip,
+        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad, strip, sharp,
       }];
       showEdges(combineScans([work.scanA, ...extras.map(x => x.scan)], settings), extras);
     } finally {
@@ -490,6 +502,12 @@ export default function Grading() {
             The magenta lines should sit where the border ends and the picture's frame
             {side === 'back' ? ' (the blue swirl)' : ''} begins. Move any that don't.
           </p>
+          {work.sharp != null && work.sharp < settings.edges.minSharp && (
+            <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap', color: 'var(--warning, #e0a030)', fontSize: '0.9rem' }}>
+              <span>⚠ This photo came out a little out of focus (sharpness {work.sharp.toFixed(2)}): small whitening may be missed and the lines are harder to place. Retaking it is best.</span>
+              <button className="btn btn-sm" onClick={() => redoSide(side)}>Retake</button>
+            </div>
+          )}
           <CenteringEditor image={work.image} lines={work.lines} sides={work.sides} pxPerMm={settings.image.pxPerMm}
             foundLines={work.foundLines} slopes={work.slopes} followTilt={work.followTilt !== false} noBorder={work.noBorder}
             onChange={lines => setWork(w => ({ ...w, lines }))}

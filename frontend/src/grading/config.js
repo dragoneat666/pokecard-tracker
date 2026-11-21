@@ -181,6 +181,13 @@ export const GRADING_DEFAULTS = {
     // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
     // turned away: "take it again".
     minMatch: 0.42,
+    // Focus of the photo as taken (grading/sharpness.js, on the straightened
+    // card): sharp photos scored 0.58-0.76, out-of-focus ones 0.39-0.45 (all
+    // had passed the camera's check on its preview). Under minSharp the first
+    // photo gets a warning and a turned one is turned away, as is a turned
+    // one under minSharpShare of the first photo's score.
+    minSharp: 0.5,
+    minSharpShare: 0.8,
     // Possible nicks (edges.findNicks): the outline dipping in at least minPx
     // (0.05 mm each) below its median over windowMm either way, along
     // minRunMm-maxRunMm of a straight edge, in the same place in 2 or more

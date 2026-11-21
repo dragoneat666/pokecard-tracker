@@ -55,6 +55,24 @@ function changeKept(g, w, h, dx, dy) {
   return { total, kept };
 }
 
+// A straightened card (ImageData, 20 px per mm) as grey levels, without the
+// `margin` pixels of background round it, for sharpnessOf: the photo as
+// taken, which can be blurrier than the camera preview that passed (the full
+// photo is focused and taken separately; seen on real checks: preview 0.52-
+// 0.57, the photo 0.39-0.44).
+export function imageGrey(image, margin = 0) {
+  const { width: IW, data } = image;
+  const w = IW - 2 * margin, h = image.height - 2 * margin;
+  const grey = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const j = ((y + margin) * IW + x + margin) * 4;
+      grey[y * w + x] = 0.299 * data[j] + 0.587 * data[j + 1] + 0.114 * data[j + 2];
+    }
+  }
+  return { grey, w, h };
+}
+
 // { score }: 1 = sharp, 0 = completely blurred (the share of the fine change
 // that the extra blur takes away, in the worse of the two directions). On the
 // sample photos: 0.62-0.81 as they are, 0.50-0.68 with a 0.05 mm blur added,
