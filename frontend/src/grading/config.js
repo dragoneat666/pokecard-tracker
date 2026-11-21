@@ -100,6 +100,17 @@ export const GRADING_DEFAULTS = {
       // to the border is sometimes nearly the border's blue) and it is looked
       // for again where the frame has to be.
       backFrame: { leftRightMm: 6.3, topBottomMm: 6.95, maxOffMm: 1 },
+      // On the front, a side found more than suspectMm deeper than the
+      // middle of the other three is looked at again for a nearer edge
+      // (a frame panel nearly the border's colour, see centering.js step 6):
+      // one at least minShare as strong as where it stopped, that the lines
+      // agree on (confidence at least minConfidence; holo sparkle makes most
+      // candidates look fairly sure, so it only drops the worst).
+      frontNearer: { suspectMm: 1.4, minShare: 0.25, minConfidence: 0.4, nearMm: 0.75 },
+      // A print turned against the card's edges by less than this across the
+      // card's width (mm) is taken as straight (centering.js rotationOf): the
+      // crooked Charjabug is turned about 0.25 mm across.
+      minTiltMm: 0.2,
     },
   },
 

@@ -15,6 +15,7 @@ import { gradingImage } from '../../api.js';
 import { estimateOf, gradeText, compareCopies, whiteningText } from '../../grading/estimate.js';
 import { EdgesCard } from './EdgesReview.jsx';
 import { surfaceText } from '../../grading/surface.js';
+import { ratioWords } from '../../grading/centering.js';
 import { reverseName } from './CardPicker.jsx';
 
 const STATUS = {
@@ -207,8 +208,8 @@ function SavedSide({ copy, face, marks, settings }) {
       {c && (
         <table style={{ fontSize: '0.85rem' }}>
           <tbody>
-            <tr><td style={muted}>Left / right</td><td><b>{c.leftRightText}</b> ({c.mm.left} / {c.mm.right} mm)</td></tr>
-            <tr><td style={muted}>Top / bottom</td><td><b>{c.topBottomText}</b> ({c.mm.top} / {c.mm.bottom} mm)</td></tr>
+            <tr><td style={muted}>Left / right</td><td><b>{ratioWords(c, 'leftRight')}</b> ({c.mm.left} / {c.mm.right} mm)</td></tr>
+            <tr><td style={muted}>Top / bottom</td><td><b>{ratioWords(c, 'topBottom')}</b> ({c.mm.top} / {c.mm.bottom} mm)</td></tr>
           </tbody>
         </table>
       )}

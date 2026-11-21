@@ -77,7 +77,7 @@ export function compareCopies(a, b, settings) {
     if (!ma && !mb) continue;
     reasons.push({
       what: `${cap(face)} centering`, weight,
-      a: ma ? ratioText(ma.worst) : 'not checked', b: mb ? ratioText(mb.worst) : 'not checked',
+      a: ma ? (ma.worst == null ? 'no border' : ratioText(ma.worst)) : 'not checked', b: mb ? (mb.worst == null ? 'no border' : ratioText(mb.worst)) : 'not checked',
       better: pick(ma?.worst, mb?.worst, points),
     });
   }

@@ -21,7 +21,7 @@
 // Nothing in here may be random: the same photo and the same adjustments must
 // always give the same answer.
 
-import { CENTERING_VERSION, findBorders, measure as measureCentering, centeringCap } from './centering.js';
+import { CENTERING_VERSION, findBorders, measure as measureCentering, slopesInUse, centeringCap } from './centering.js';
 import { EDGES_VERSION, scanEdges, findSpots, doubtTracksOf, measureEdges, edgesCap } from './edges.js';
 
 export const ANALYZERS = [
@@ -30,7 +30,9 @@ export const ANALYZERS = [
     version: CENTERING_VERSION,
     label: 'Centering',
     find: (image, settings, options) => findBorders(image, settings, options),
-    measure: (state, settings) => measureCentering(state.lines, settings.image.pxPerMm),
+    // state: { lines, foundLines, slopes, followTilt, noBorder }
+    measure: (state, settings) => measureCentering(state.lines, settings.image.pxPerMm,
+      { slopes: slopesInUse(state, settings.image.pxPerMm), noBorder: state.noBorder }),
     cap: ({ front, back }, settings) => centeringCap(front, back, settings),
   },
   {

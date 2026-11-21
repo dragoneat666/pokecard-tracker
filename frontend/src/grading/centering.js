@@ -35,16 +35,29 @@
 //
 // Ratios are written the way graders do: the bigger side's share first, so a
 // card 3.6 mm on the left and 2.6 mm on the right is 58/42.
+//
+// A card cut a little crooked has a frame that tilts against its edges: the
+// border gets wider towards one end of a side and narrower towards the other
+// (a Radiant Charjabug measured 0.25 mm narrower at the top-right than the
+// top-left). Graders judge centering where it looks worst, so each line keeps
+// the tilt the finder measured (slopes) and is drawn slanted, and measure()
+// works out the ratios at both ends of the frame as well as the middle and
+// counts the worst. A side pair can also be left out ("no border" on a full
+// art card whose picture runs to the edge, where there's nothing to measure).
 
-export const CENTERING_VERSION = 1;
+export const CENTERING_VERSION = 2;
 
 const SIDES = ['left', 'right', 'top', 'bottom'];
 
 // Finds the inner border lines. Answers
-//   { lines, sides: { left: { found, share, spreadPx, confidence }, ... }, border: [r,g,b], threshold }
+//   { lines, slopes, turnDeg, sides: { left: { found, share, spreadPx, confidence }, ... }, border: [r,g,b], threshold }
 // lines = x positions of the left / right lines and y positions of the top /
 // bottom lines, in the straightened image, measured from its top-left corner
 // (the card's edges are at 0 and the picture's width / height).
+// slopes = each line's tilt: how much deeper the border gets per pixel along
+// the side (left / right: going down, top / bottom: going right), from the
+// print's turn against the card's edges (turnDeg, see rotationOf); all 0 when
+// it isn't clearly turned.
 // face: 'front' or 'back' (the back's printed frame is the same size on every
 // card, which helps where its edge is faint: see backFrame in config.js).
 export function findBorders(image, settings, { face = 'front' } = {}) {
@@ -100,7 +113,7 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
   const noise = median(learnDists);
   const threshold = Math.max(b.minDistance, b.noiseFactor * noise);
 
-  const hits = {}, sides = {}, tilt = {};
+  const hits = {}, sides = {}, tilt = {}, slopes = {};
   for (const side of SIDES) {
     const { ts, depth, maxD, dist } = per[side];
     const n = ts.length;
@@ -130,8 +143,9 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
   }
 
   // 3. The exact edge near a rough depth (see the top of the file). Answers
-  // { found: each line's edge depth, tilt }.
-  function placeEdge(side, rough) {
+  // { found: each line's edge depth, tilt }. at: place it at this depth
+  // instead of searching around the rough one (step 6 has already chosen).
+  function placeEdge(side, rough, at = null) {
     const { ts, depth, maxD, col, shares } = per[side];
     const n = ts.length;
     const found = [];
@@ -149,7 +163,8 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
     let lo = rough;
     while (lo - 1 > to && lo > rough - near && shares[lo - 1] >= b.reachShare) lo--;
     lo = Math.max(lo - 2, to + 1);
-    const hi = Math.min(maxD - 2, rough + near);
+    let hi = Math.min(maxD - 2, rough + near);
+    if (at !== null) { lo = Math.max(at - 2, to + 1); hi = Math.min(maxD - 2, at + 2); }
     const grad = (li, d) => {
       const i = (li * depth + d - 1) * 3, j = (li * depth + d + 1) * 3;
       const dr = col[j] - col[i], dg = col[j + 1] - col[i + 1], db = col[j + 2] - col[i + 2];
@@ -211,6 +226,10 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
   function record(side, { found, tilt: tiltPx }, extra = {}) {
     const n = per[side].ts.length;
     if (tiltPx !== undefined) tilt[side] = tiltPx; else delete tilt[side];
+    // the tilt over the whole side, and per pixel along it
+    const span = per[side].ts[n - 1] - per[side].ts[0];
+    const len = side === 'left' || side === 'right' ? H : W;
+    slopes[side] = tiltPx !== undefined && span > 0 ? tiltPx / span : null;
     found.sort((x, y) => x - y);
     const width = found.length ? quantile(found, 0.5) : null;
     const spread = found.length >= 4 ? quantile(found, 0.75) - quantile(found, 0.25) : null;
@@ -259,6 +278,55 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
     }
   }
 
+  // 6. On the front, a frame panel can be nearly the border's own colour
+  // (the gold and silver frames of newer holo cards), and then a side's search
+  // runs on past the frame's faint edge to the art box, 4-8 mm in. Every side
+  // of a front has about the same border (real ones 2.1-3.1 mm on modern
+  // cards), so a side found far deeper than the others is looked at again:
+  // the clearest straight edge nearer in than where it stopped, crossing most
+  // of the lines, is taken. If there is none (a card that really is that far
+  // off-centre has plain border there), the line stays where it was but is
+  // shown as unsure, so it gets a look.
+  const nearer = b.frontNearer;
+  if (face === 'front' && nearer) {
+    const was = { ...hits };
+    for (const side of SIDES) {
+      if (was[side] === null) continue;
+      const others = SIDES.filter(sd => sd !== side && was[sd] !== null).map(sd => was[sd]);
+      if (others.length < 2 || was[side] - median(others) <= nearer.suspectMm * pxPerMm) continue;
+      const { ts, depth, maxD, col } = per[side];
+      const n = ts.length;
+      const sumAt = (d) => {
+        let sum = 0;
+        for (let li = 0; li < n; li++) {
+          const i = (li * depth + d - 1) * 3, j = (li * depth + d + 1) * 3;
+          sum += Math.hypot(col[j] - col[i], col[j + 1] - col[i + 1], col[j + 2] - col[i + 2]);
+        }
+        return sum;
+      };
+      const expect = median(others);
+      const stop = Math.round(was[side]);
+      const ref = Math.max(sumAt(stop - 1), sumAt(stop), sumAt(stop + 1));
+      const last = Math.min(maxD - 2, stop - near - 2);
+      const sums = [];
+      for (let d = to + 1; d <= last + 1; d++) sums[d] = sumAt(d);
+      let best = null;
+      for (let d = to + 2; d <= last; d++) {
+        if (!(sums[d] >= sums[d - 1] && sums[d] >= sums[d + 1]) || sums[d] < nearer.minShare * ref) continue;
+        const placed = placeEdge(side, d, d);
+        const found = placed.found.filter(p => Math.abs(p - d) <= b.lineReachPx + 2);
+        const sorted = [...found].sort((x, y) => x - y);
+        const spread = sorted.length >= 4 ? quantile(sorted, 0.75) - quantile(sorted, 0.25) : null;
+        const conf = confidenceOf(found.length / n, spread, pxPerMm);
+        // as strong as possible, and near where the other sides' borders are
+        const score = (sums[d] / ref) * Math.exp(-0.5 * ((d - expect) / (nearer.nearMm * pxPerMm)) ** 2);
+        if (conf >= nearer.minConfidence && (!best || score > best.score)) best = { placed: { ...placed, found }, score };
+      }
+      if (best) record(side, best.placed, { nearer: true });
+      else sides[side] = { ...sides[side], doubt: true, confidence: Math.min(sides[side].confidence, 0.5) };
+    }
+  }
+
   // A side where nothing was found gets the same width as its opposite side
   // (shown as a guess, to be placed by hand); on the back, what the frame
   // leaves for it.
@@ -278,30 +346,99 @@ export function findBorders(image, settings, { face = 'front' } = {}) {
       outerTop: 0, innerTop: round(hits.top, 2),
       innerBottom: round(H - hits.bottom, 2), outerBottom: H,
     },
+    ...rotationOf(slopes, sides, b.minTiltMm * pxPerMm / W),
     sides,
     border: [0, 1, 2].map(c => Math.round(median(refs.map(r => r[c])))),
     threshold: round(threshold, 1),
   };
 }
 
-// Border widths and ratios from the 8 lines.
-export function measure(lines, pxPerMm) {
-  const left = lines.innerLeft - lines.outerLeft;
-  const right = lines.outerRight - lines.innerRight;
-  const top = lines.innerTop - lines.outerTop;
-  const bottom = lines.outerBottom - lines.innerBottom;
-  const lr = 100 * left / (left + right);
-  const tb = 100 * top / (top + bottom);
-  const lrBig = Math.max(lr, 100 - lr), tbBig = Math.max(tb, 100 - tb);
-  return {
-    mm: { left: round(left / pxPerMm, 2), right: round(right / pxPerMm, 2), top: round(top / pxPerMm, 2), bottom: round(bottom / pxPerMm, 2) },
-    leftRight: round(lr, 1),             // left side's share
-    topBottom: round(tb, 1),             // top side's share
-    leftRightText: ratioText(lr),        // "58/42"
-    topBottomText: ratioText(tb),
-    worst: round(Math.max(lrBig, tbBig), 1),
-    worstDirection: lrBig >= tbBig ? 'left/right' : 'top/bottom',
+// The tilts that count: a line moved well away from where the finder put it
+// (it had found the wrong edge) is taken as straight, and so are all of them
+// when the user turned "follow the tilt" off. Answers { left, right, top, bottom }.
+export function slopesInUse({ lines, foundLines, slopes, followTilt = true }, pxPerMm, maxMoveMm = 0.5) {
+  const out = { left: 0, right: 0, top: 0, bottom: 0 };
+  if (!slopes || !followTilt) return out;
+  const key = { left: 'innerLeft', right: 'innerRight', top: 'innerTop', bottom: 'innerBottom' };
+  for (const sd of SIDES) {
+    const moved = foundLines ? Math.abs(lines[key[sd]] - foundLines[key[sd]]) : 0;
+    out[sd] = moved <= maxMoveMm * pxPerMm ? (slopes[sd] || 0) : 0;
+  }
+  return out;
+}
+
+// A card cut crooked has its whole print turned a little against its edges,
+// so all four frame lines tilt together: by angle a (radians, + = turned
+// clockwise), the top border gets deeper going right by a per pixel, the
+// right going down by a, and the bottom and left shallower (-a). Each side's
+// own tilt is noisy (photo noise, a slightly bent card: straight cards showed
+// up to 0.4 mm on a single side), so the angle is the average of the sides
+// that measured one, and it only counts when it's at least minSlope and most
+// of those sides agree on its direction. Answers { slopes, turnDeg }.
+function rotationOf(raw, sides, minSlope) {
+  const sign = { top: 1, right: 1, bottom: -1, left: -1 };
+  const got = SIDES.filter(sd => raw[sd] != null && sides[sd]?.found).map(sd => [sd, sign[sd] * raw[sd]]);
+  const zero = { slopes: { left: 0, right: 0, top: 0, bottom: 0 }, turnDeg: 0 };
+  if (got.length < 3) return zero;
+  const a = got.reduce((t, [, v]) => t + v, 0) / got.length;
+  const agree = got.filter(([, v]) => Math.sign(v) === Math.sign(a)).length;
+  if (Math.abs(a) < minSlope || agree < got.length - (got.length >= 4 ? 1 : 0)) return zero;
+  const k = round(a, 6);
+  return { slopes: { top: k, right: k, bottom: -k, left: -k }, turnDeg: round(a * 180 / Math.PI, 2) };
+}
+
+// Border widths and ratios from the 8 lines. options: { slopes (from
+// slopesInUse), noBorder: { leftRight, topBottom } } — a pair with no border
+// is left out (its ratio is null). The ratios are the worst of the middle and
+// both ends of the frame; mm are the middle. *Where: 'top' / 'bottom' (for
+// left/right) or 'left' / 'right' (for top/bottom) when an end is worse than
+// the middle, else null.
+export function measure(lines, pxPerMm, { slopes = null, noBorder = null } = {}) {
+  const s = slopes || {};
+  const midX = (lines.outerLeft + lines.outerRight) / 2, midY = (lines.outerTop + lines.outerBottom) / 2;
+  const left = (y) => lines.innerLeft - lines.outerLeft + (s.left || 0) * (y - midY);
+  const right = (y) => lines.outerRight - lines.innerRight + (s.right || 0) * (y - midY);
+  const top = (x) => lines.innerTop - lines.outerTop + (s.top || 0) * (x - midX);
+  const bottom = (x) => lines.outerBottom - lines.innerBottom + (s.bottom || 0) * (x - midX);
+  // the worst spot: the middle, or either end of the frame
+  const worstOf = (a, z, spots) => {
+    let best = null;
+    for (const [where, t] of spots) {
+      const va = a(t), vz = z(t);
+      if (va + vz <= 0) continue;
+      const share = 100 * va / (va + vz);
+      const big = Math.max(share, 100 - share);
+      if (!best || big > best.big + 0.05) best = { share, big, where };
+    }
+    return best;
   };
+  const lr = noBorder?.leftRight ? null
+    : worstOf(left, right, [[null, midY], ['top', lines.innerTop], ['bottom', lines.innerBottom]]);
+  const tb = noBorder?.topBottom ? null
+    : worstOf(top, bottom, [[null, midX], ['left', lines.innerLeft], ['right', lines.innerRight]]);
+  const worst = Math.max(lr?.big ?? -1, tb?.big ?? -1);
+  return {
+    mm: { left: round(left(midY) / pxPerMm, 2), right: round(right(midY) / pxPerMm, 2), top: round(top(midX) / pxPerMm, 2), bottom: round(bottom(midX) / pxPerMm, 2) },
+    leftRight: lr ? round(lr.share, 1) : null,          // left side's share
+    topBottom: tb ? round(tb.share, 1) : null,          // top side's share
+    leftRightText: lr ? ratioText(lr.share) : null,     // "58/42"
+    topBottomText: tb ? ratioText(tb.share) : null,
+    leftRightWhere: lr?.where ?? null,
+    topBottomWhere: tb?.where ?? null,
+    noBorder: noBorder?.leftRight || noBorder?.topBottom ? { leftRight: !!noBorder.leftRight, topBottom: !!noBorder.topBottom } : null,
+    tilted: !!(s.left || s.right || s.top || s.bottom),
+    worst: worst < 0 ? null : round(worst, 1),
+    worstDirection: worst < 0 ? null : (lr?.big ?? -1) >= (tb?.big ?? -1) ? 'left/right' : 'top/bottom',
+  };
+}
+
+// "58/42", "58/42 at the top end", "not measured (no border)": a pair's ratio
+// in words, for the pages.
+export function ratioWords(m, pair) {
+  const text = pair === 'leftRight' ? m.leftRightText : m.topBottomText;
+  const where = pair === 'leftRight' ? m.leftRightWhere : m.topBottomWhere;
+  if (!text) return 'not measured (no border)';
+  return where ? `${text} at the ${where} end` : text;
 }
 
 export function ratioText(share) {
@@ -323,7 +460,7 @@ export function centeringCap(front, back, settings) {
   const table = settings.centering;
   const per = {};
   for (const [side, m] of [['front', front], ['back', back]]) {
-    if (!m) continue;
+    if (!m || m.worst == null) continue;
     per[side] = {
       cap: capFor(m.worst, side, table),
       high: capFor(m.worst - table.closeCall, side, table),

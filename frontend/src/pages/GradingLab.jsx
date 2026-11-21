@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { GRADING_DEFAULTS, mergeSettings, LAB_SETTINGS_KEY as STORE_KEY, labOverrides as loadOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, straighten, turnQuad, warmUp, cardFromScan, detailOf } from '../grading/vision.js';
 import { analyzer } from '../grading/analyzers.js';
+import { ratioWords } from '../grading/centering.js';
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import EdgesReview from '../components/grading/EdgesReview.jsx';
 
@@ -188,12 +189,12 @@ export default function GradingLab() {
               <h2 style={h2}>2. Straightened, with border lines</h2>
               <CardWithLines image={result.image} lines={result.borders.lines} />
               <Numbers rows={[
-                ['Left / right', `${result.measured.leftRightText}  (left ${result.measured.mm.left} mm, right ${result.measured.mm.right} mm)`],
-                ['Top / bottom', `${result.measured.topBottomText}  (top ${result.measured.mm.top} mm, bottom ${result.measured.mm.bottom} mm)`],
+                ['Left / right', `${ratioWords(result.measured, 'leftRight')}  (left ${result.measured.mm.left} mm, right ${result.measured.mm.right} mm)`],
+                ['Top / bottom', `${ratioWords(result.measured, 'topBottom')}  (top ${result.measured.mm.top} mm, bottom ${result.measured.mm.bottom} mm)`],
                 ['Border colour', `rgb(${result.borders.border.join(', ')})`],
                 ['Threshold', result.borders.threshold],
                 ...Object.entries(result.borders.sides).map(([side, s]) =>
-                  [`${side}`, `found on ${Math.round(s.share * 100)}% of lines, spread ${s.spreadPx ?? '—'} px, confidence ${s.confidence}${s.fromBackFrame ? " (looked for again where the back's frame has to be)" : ""}`]),
+                  [`${side}`, `found on ${Math.round(s.share * 100)}% of lines, spread ${s.spreadPx ?? '—'} px, confidence ${s.confidence}${s.fromBackFrame ? " (looked for again where the back's frame has to be)" : ""}${s.nearer ? " (looked for again nearer the edge: it had run on far deeper than the other sides)" : ""}${s.doubt ? " (far deeper than the other sides, nothing nearer found: check it)" : ""}`]),
               ]} />
             </section>
           )}

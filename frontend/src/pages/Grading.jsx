@@ -40,6 +40,7 @@ import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf, edgeStrips } from '../grading/vision.js';
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, markSpots, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
+import { slopesInUse, ratioWords } from '../grading/centering.js';
 import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
 import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
 import { api, isNative } from '../api.js';
@@ -198,7 +199,7 @@ export default function Grading() {
         stripInfo.push({ photo: i + 1, turn: i ? d.edges.extras[i - 1].label : null, ...info, outMm: settings.edges.strips.outMm, inMm: settings.edges.strips.inMm });
       });
       details[s] = {
-        lines: d.lines, foundLines: d.foundLines, bendMm: d.bendMm,
+        lines: d.lines, foundLines: d.foundLines, slopes: d.slopes || null, followTilt: d.followTilt !== false, noBorder: d.noBorder || null, bendMm: d.bendMm,
         detailPxPerMm: Math.round(detailOf(d.quad) * 10) / 10,
         pictureMargin: d.edges ? d.edges.margin : 0,
         edges: d.edges ? {
@@ -258,7 +259,7 @@ export default function Grading() {
   const toCentering = (quad = work.quad) => busy('Straightening the card…', async () => {
     const image = await straighten(work.bitmap, quad);
     const borders = centering.find(image, settings, { face: side });
-    setWork(w => ({ ...w, quad, image, lines: borders.lines, foundLines: borders.lines, sides: borders.sides }));
+    setWork(w => ({ ...w, quad, image, lines: borders.lines, foundLines: borders.lines, slopes: borders.slopes, sides: borders.sides, followTilt: true, noBorder: null }));
     setStep('centering');
   });
 
@@ -356,7 +357,7 @@ export default function Grading() {
   const removeMark = (id) => setWork(w => ({ ...w, marks: (w.marks || []).filter(m => m.id !== id) }));
 
   function finishSide() {
-    const measured = centering.measure({ lines: work.lines }, settings);
+    const measured = centering.measure(work, settings);
     const e = work.edges;
     // the turned photos' pictures are let go (only their photos stay, for "Send for testing")
     const extras = (e?.extras || []).map(({ image, scan, ...rest }) => rest);
@@ -490,7 +491,9 @@ export default function Grading() {
             {side === 'back' ? ' (the blue swirl)' : ''} begins. Move any that don't.
           </p>
           <CenteringEditor image={work.image} lines={work.lines} sides={work.sides} pxPerMm={settings.image.pxPerMm}
-            onChange={lines => setWork(w => ({ ...w, lines }))} />
+            foundLines={work.foundLines} slopes={work.slopes} followTilt={work.followTilt !== false} noBorder={work.noBorder}
+            onChange={lines => setWork(w => ({ ...w, lines }))}
+            onOptions={opts => setWork(w => ({ ...w, ...opts }))} />
           <div style={rowStyle}>
             <button className="btn btn-primary" onClick={toEdges}>Next: edges and corners</button>
             <button className="btn btn-ghost" onClick={() => setWork(w => ({ ...w, lines: w.foundLines }))}>Reset lines</button>
@@ -660,15 +663,20 @@ function Result({ done, settings, onRedo, onAnother, sendButton, save }) {
         {['front', 'back'].map(s => done[s] && (
           <section key={s} className="panel" style={{ display: 'grid', gap: 'var(--space-2)' }}>
             <h2 style={{ fontSize: '1rem', margin: 0 }}>{s === 'front' ? 'Front' : 'Back'}</h2>
-            <CardPreview image={done[s].image} lines={done[s].lines} />
+            <CardPreview image={done[s].image} lines={done[s].lines} slopes={slopesInUse(done[s], settings.image.pxPerMm)} />
             <table style={{ fontSize: '0.9rem' }}>
               <tbody>
-                <tr><td style={cellKey}>Left / right</td><td><b>{done[s].measured.leftRightText}</b></td></tr>
-                <tr><td style={cellKey}></td><td>{done[s].measured.mm.left} mm / {done[s].measured.mm.right} mm</td></tr>
-                <tr><td style={cellKey}>Top / bottom</td><td><b>{done[s].measured.topBottomText}</b></td></tr>
-                <tr><td style={cellKey}></td><td>{done[s].measured.mm.top} mm / {done[s].measured.mm.bottom} mm</td></tr>
+                <tr><td style={cellKey}>Left / right</td><td><b>{ratioWords(done[s].measured, 'leftRight')}</b></td></tr>
+                <tr><td style={cellKey}></td><td>{done[s].measured.mm.left} mm / {done[s].measured.mm.right} mm{done[s].measured.leftRightWhere ? ' (middle)' : ''}</td></tr>
+                <tr><td style={cellKey}>Top / bottom</td><td><b>{ratioWords(done[s].measured, 'topBottom')}</b></td></tr>
+                <tr><td style={cellKey}></td><td>{done[s].measured.mm.top} mm / {done[s].measured.mm.bottom} mm{done[s].measured.topBottomWhere ? ' (middle)' : ''}</td></tr>
               </tbody>
             </table>
+            {done[s].measured.tilted && (
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                The frame is printed a little crooked: centering counts its worst end, as graders do.
+              </div>
+            )}
             {done[s].edges && (
               <>
                 <EdgesCard edges={done[s].edges} maxWidth={260} userMarks={done[s].marks || []} />
@@ -746,7 +754,7 @@ function EdgesNumbers({ edges, marks, face, settings }) {
   );
 }
 
-function CardPreview({ image, lines }) {
+function CardPreview({ image, lines, slopes }) {
   const [wrapRef, cssW] = useCanvasWidth();
   const ref = useRef(null);
   useEffect(() => {
@@ -759,8 +767,12 @@ function CardPreview({ image, lines }) {
       ctx.strokeStyle = 'rgba(255, 0, 255, 0.9)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (const x of [lines.innerLeft, lines.innerRight]) { ctx.moveTo(x * s, 0); ctx.lineTo(x * s, h); }
-      for (const y of [lines.innerTop, lines.innerBottom]) { ctx.moveTo(0, y * s); ctx.lineTo(w, y * s); }
+      // slanted where the frame tilts (centering.js slopes; right / bottom
+      // lines move the other way, being measured from the far edge)
+      const sl = slopes || {};
+      const H = image.height, W = image.width;
+      for (const [x, k] of [[lines.innerLeft, sl.left || 0], [lines.innerRight, -(sl.right || 0)]]) { ctx.moveTo((x - k * H / 2) * s, 0); ctx.lineTo((x + k * H / 2) * s, h); }
+      for (const [y, k] of [[lines.innerTop, sl.top || 0], [lines.innerBottom, -(sl.bottom || 0)]]) { ctx.moveTo(0, (y - k * W / 2) * s); ctx.lineTo(w, (y + k * W / 2) * s); }
       ctx.stroke();
     });
   }, [image, lines, cssW]);
