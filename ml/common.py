@@ -110,6 +110,46 @@ def round_js(v):
     return math.floor(v + 0.5)
 
 
+# ─── edge strips (v0.7.43+) ──────────────────────────────────────────────────
+# One JPEG per photo of a side: rows top, right, bottom, left stacked, each
+# turned so the outside is up and running clockwise round the card, from
+# outPx outside the edge to inPx inside, outPx past both corners; short rows
+# padded on the right with grey. All photos' strips are lined up with photo 1
+# (the app turns a flipped photo's corners round). Layout in
+# result.details[side].strips: [{photo, turn, ppm, outPx, inPx, outMm, inMm,
+# width, height, rows: [{edge, y, length}]}].
+
+STRIP_PATH_RE = r'^/api/grading/strips/(\d+)-(front|back)-([1-4])-[0-9a-f]+\.jpg$'
+
+
+def strip_layouts(copy, side):
+    """The layout entries of a side's strips, by photo number."""
+    d = ((copy.get('result') or {}).get('details') or {}).get(side) or {}
+    return {s['photo']: s for s in d.get('strips') or [] if 'photo' in s}
+
+
+def strip_path(copy, key):
+    """Local file of a copy's strip ("front-1" etc.), or None."""
+    url = (copy.get('strips_seen') or {}).get(key) or (copy.get('strips') or {}).get(key)
+    if not url:
+        return None
+    p = data_dir() / 'strips' / url.rsplit('/', 1)[-1]
+    return p if p.exists() else None
+
+
+def strip_u(along_mm, layout):
+    """Strip column (pixel-centre coordinate) at along_mm from the card's
+    corner-to-corner start of that edge."""
+    return layout['outPx'] + along_mm * layout['ppm'] - 0.5
+
+
+def step_to_along_mm(step, g):
+    """A straight-edge track step of the saved picture (side_geometry g) ->
+    mm along that edge from the card's corner-to-corner start, the same
+    direction the strips run (clockwise)."""
+    return (g['R'] + step + 0.5) / g['ppm']
+
+
 def side_geometry(copy, side, img_w, img_h):
     """The card's size in the saved picture: dict(margin, W, H, ppm, R, geo),
     or None if the side has no edges check."""
