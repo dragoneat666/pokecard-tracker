@@ -18,6 +18,13 @@
 //                                         become "sell"
 //   DELETE /api/grading/copies/:id        the copy and its pictures
 //   GET    /api/grading/images/<file>     the saved pictures
+//   GET    /api/grading/export?since=     every saved copy with its card, its
+//                                         full measurements (incl. the nick
+//                                         answers and the user's marks) and
+//                                         its picture addresses, oldest first.
+//                                         For training a checker on another
+//                                         computer; since = an ISO time, only
+//                                         copies changed after it
 //
 // What a copy is and what its status means: db/migrations/0.7.36-grading-copies.sql.
 // Nothing here ever changes a card's owned count: the user unticks the second
@@ -140,6 +147,35 @@ router.get('/cards/:id', async (req, res, next) => {
     if (!rows.length) return res.status(404).json({ error: 'Card not found' });
     const copies = await query('SELECT * FROM grading_copies WHERE card_id = $1 ORDER BY created_at', [id]);
     res.json({ card: rows[0], copies: copies.rows.map(copyOut) });
+  } catch (err) { next(err); }
+});
+
+router.get('/export', async (req, res, next) => {
+  try {
+    const params = [];
+    let where = '';
+    if (req.query.since) {
+      const since = new Date(String(req.query.since));
+      if (Number.isNaN(since.getTime())) return res.status(400).json({ error: 'since isn't a valid time' });
+      params.push(since.toISOString());
+      where = 'WHERE g.updated_at > $1';
+    }
+    const { rows } = await query(`
+      SELECT g.id, g.slot, g.status, g.label, g.estimate, g.estimate_low, g.estimate_high,
+        g.result, g.images, g.created_at, g.updated_at,
+        c.id AS card_id, c.name AS card_name, c.card_number, c.rarity, s.name AS set_name, s.set_code
+      FROM grading_copies g
+      JOIN cards c ON c.id = g.card_id
+      JOIN sets s ON s.id = c.set_id
+      ${where}
+      ORDER BY g.updated_at, g.id`, params);
+    res.json({
+      exportedAt: new Date().toISOString(),
+      copies: rows.map(({ images, ...r }) => ({
+        ...r,
+        pictures: Object.fromEntries(Object.entries(images || {}).map(([key, file]) => [key, `/api/grading/images/${file}`])),
+      })),
+    });
   } catch (err) { next(err); }
 });
 
