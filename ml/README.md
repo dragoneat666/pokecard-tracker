@@ -43,28 +43,98 @@ Each script has `--help`. `fetch.py --dry-run` only lists what it would do.
 |---|---|
 | `fetch.py` | `GET /api/grading/export?since=` → `data\copies\<id>.json` (latest state of each copy), `data\exports\<time>.json` (raw snapshots), `data\pictures\` (skips files already there). Remembers the newest `updated_at` in `data\state.json`; `--all` starts over. Then downloads, checks and **deletes on the server** every edge strip still there (see below); `--keep-strips` skips the delete. |
 | `test_fetch.py` | Tests the strip check and the download → check → delete order against a fake backend on localhost. |
-| `crops.py` | Slides a 3 × 2.5 mm window (1.5 mm steps) along the 4 straight edges of each saved picture, resampled to 20 px/mm, turned so every crop looks like a piece of the top edge (outside at the top). Writes `data\crops\<label>\*.png` and `data\crops\index.csv`, and prints label counts and geometry warnings. |
-| `sheet.py` | `runs\sheets\sheet_<label>.png` grids, and `focus_*.png` strips of one edge with a step ruler (for every hand label, plus `--focus copy:side:track:from:to`). `--strips copy:side [--edge top] [--mm 30:40] [--strip-ppm 40]` instead shows every photo's strips of one side, one under the other per edge, at the same px/mm so they line up. A fleck that shows in every photo is real; a bright line that shows in only some of them is a glint. The bars under photo 1 show what the app found on the saved picture. |
-| `common.py` | Settings, paths, `TrackGeometry` (a port of `trackGeometry()` from `frontend/src/grading/edges.js`), and the strip helpers (`strip_layouts`, `strip_u`, `step_to_along_mm`). |
+| `crops.py` | Cuts the labelled training crops (see **Training crops** below): `data\crops\<label>\*.png`, `data\crops\index.csv` (one row per crop) and `data\crops\marks.csv` (one row per user mark). Prints windows per label, where each mark snapped to, and geometry warnings. |
+| `strips.py` | Reads the strips in mm (`SideStrips.sample/crop`) and snaps user marks to the fleck or dip they point at (`snap_mark`). |
+| `test_strips.py` | Tests the snapping (a fleck in both photos, a glint in one, a clean edge, out of reach, mixed px/mm), `mark_edge`, and crop orientation, on synthetic strips. |
+| `sheet.py` | `runs\sheets\sheet_<label>.png` grids (the photos of one window sit side by side), and `focus_*.png` strips of one edge with a step ruler (for every hand label, plus `--focus copy:side:track:from:to`). `--strips copy:side [--edge top] [--mm 30:40] [--strip-ppm 40]` instead shows every photo's strips of one side, one under the other per edge, at the same px/mm so they line up. A fleck that shows in every photo is real; a bright line that shows in only some of them is a glint. The bars under photo 1 show what the app found on the saved picture. A yellow arrow above every photo marks each user mark's tap, and a green bar under every photo shows where it snapped to. |
+| `common.py` | Settings, paths, `TrackGeometry` (a port of `trackGeometry()` from `frontend/src/grading/edges.js`), the strip helpers (`strip_layouts`, `strip_u`, `step_to_along_mm`), and `mark_edge`. |
+
+## Training crops
+
+**Windows:** 3 mm along × 2.5 mm across (`--along`, `--across`), every 1.5 mm
+(`--stride`), on the straight part of each edge (corner radius to corner
+radius), centred on the card's edge. Every crop is resampled to **40 px/mm**
+(`--ppm`; 120 × 100 px) and turned so the edge runs left to right with the
+**outside at the top**. Positions are in mm along the edge from its
+corner-to-corner start (clockwise, the same as the strips ruler).
+
+**Source, per side:**
+
+- `strips`: the side has edge strips (app v0.7.43+). It gets **one crop per
+  photo** for every window, cut from that photo's strip. The photos of a
+  window share its `window_id` and label. `photo`, `turn` and `native_ppm`
+  (the strip's own px/mm, 20–40; lower ones are upsampled) tell them apart.
+- `picture`: copies saved before v0.7.43 have no strips. One crop per window
+  comes from the saved picture (photo 1 only, native 20 px/mm), with `photo`
+  = `pic`.
+
+**Why one crop per photo rather than a multi-channel stack:** sides have
+2 to 4 photos at different px/mm, and the photos line up along the edge
+only to a few tenths of a mm (copy 12's fleck is at 48.2 mm in one photo
+and 48.6 mm in the other). A fixed-size stack would need a fixed photo count
+and pixel registration that we don't have. Separate crops keep every photo,
+let a model be trained per photo and combined per window (all photos, or 3
+of 4, as the app's whitening check does), and a stack can still be built
+from `index.csv` (group by `window_id`) if that turns out better.
 
 ### Labels
 
-Each crop gets one label; the first that applies wins:
+Each window gets one label; the first that applies wins:
 
 | Label | Meaning |
 |---|---|
 | `nick-yes` | overlaps a suggested nick the user confirmed ("It's a nick") |
 | `nick-known` | overlaps a hand-entered nick in `data\manual_labels.json` |
-| `nick-mark` | a user mark of kind `nick` is near the window |
+| `nick-mark` | a user mark of kind `nick` |
+| `missed-whitening` | a user mark of kind `other` or `whitening` (v0.7.44+): whitening the app missed |
 | `nick-no` | overlaps a suggested nick the user didn't confirm |
 | `whitening` | overlaps a counted whitening spot (the app's own finding, not checked by the user) |
-| `partial` | one of the above only touches the window's outer 0.5 mm |
+| `mark-other` | a user mark of another kind (dents, scratches, creases, marks) |
+| `partial` | one of the above only touches the window's outer 0.5 mm (`--edge-mm`) |
 | `nothing` | none of the above |
 
-The CSV also carries the separate flags: `nicks_checked` (0 on copies saved
-before v0.7.40, which never asked about nicks), `whitening_doubt`,
-`whitening_ignored`, `other_mark`, plus `hit_x0/hit_x1`, which give where in
-the crop the labelled stretch sits.
+A label counts where its stretch reaches the window's inner part (0.5 mm in
+from each end). With 1.5 mm steps, every point is in the inner part of
+some window.
+
+**User marks** (`result.details[side].marks`: `{id, kind, x, y}` in mm from
+the card's top-left) go to the nearest edge (top: x; right: y; bottom:
+63 − x; left: 88 − y along it). They count from 1 mm outside the edge to
+1.75 mm inside. A tap lands about 0.7 mm from the spot, so marks of kind
+`nick`, `other` and `whitening` on sides with strips are **snapped**
+(`strips.snap_mark`):
+
+- Along ±1 mm of the tap, each photo's strip is scored by how much it stands
+  out from the edge round it (±4 mm). There are two scores, each as a robust
+  z-score with a floor in real units (3 brightness levels, 0.015 mm): a pale
+  fleck in the band from the edge to 0.6 mm inside, and an inward dip of the
+  card's outline.
+- Each photo's score is spread ±0.3 mm (the photos don't line up exactly),
+  then combined so it has to show in **every photo** (3 of 4 with 4 photos).
+  A glint in one photo doesn't count.
+- The strongest combined position scoring at least 8 is the snap. The label
+  then covers that fleck's stretch (where the photos' summed score stays
+  above half its peak). Otherwise the mark stays unsnapped and covers the
+  tap ± 0.75 mm (`--mark-mm`).
+- Calibration (copies 12–15): copy 12's marked fleck scores 13.7 and snaps
+  from 47.6 to 48.3 mm (stretch 48.05–48.6). Random taps on the same strips
+  reach 8 only 6% of the time, mostly on fronts where print touches the
+  edge. Print can't be told apart from wear this way.
+
+### CSV columns
+
+`index.csv`, one row per crop: `file, label, window_id, source, photo, turn,
+native_ppm, crop_ppm, copy, card, set, number, status, side, edge,
+along_mm_from, along_mm_to, nicks_checked` (0 on copies saved before
+v0.7.40, which never asked about nicks), `whitening_doubt, whitening_ignored,
+marks` (kinds of user marks touching the window), `mark_tap_along_mm,
+mark_snapped_along_mm, mark_snapped` (for a window labelled from a mark),
+`hit_x0, hit_x1` (where in the crop the labelled stretch sits, crop px),
+`edge_offset_mm, app_version`.
+
+`marks.csv`, one row per user mark: `copy, side, mark_id, kind, x, y, edge,
+depth_mm, tap_along_mm, near_edge, snapped, snapped_along_mm,
+snapped_from_mm, snapped_to_mm, snap_score, photos`.
 
 `data\manual_labels.json` holds labels entered by hand for older copies:
 
@@ -99,10 +169,10 @@ glints are not saved.
   (spot ids the user said aren't whitening), `doubtTracks`, `nicks [{id,
   track, from, to, lengthMm, depthMm, votes, photos, yes}]`, `nicksUnchecked`.
 - `result.details[side].marks`: `[{id, kind, x, y}]`, *x* and *y* in mm from the
-  card's top-left; `kind` is one of nick, dents, scratches, creases, marks, other.
+  card's top-left; `kind` is one of nick, dents, scratches, creases, marks, other, whitening (v0.7.44+).
 
-Crops are cut in mm and resampled, so a higher-resolution picture later gives
-the same crop size.
+Crops are cut in mm and resampled, so pictures and strips of any
+resolution give the same crop size.
 
 ## Edge strips (app v0.7.43+)
 

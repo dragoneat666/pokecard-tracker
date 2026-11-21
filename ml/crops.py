@@ -1,36 +1,53 @@
-"""Cuts edge close-ups from the downloaded grading copies.
+"""Cuts labelled edge close-ups (training crops) from the downloaded copies.
 
-A window slides along every straight-edge track (top, right, bottom, left)
-of each saved picture (front and back). Each close-up is resampled to a
-fixed px per mm (so it doesn't depend on the picture's resolution) and
-turned so the track runs left to right with the outside of the card at the
-top and the card below: every crop looks like a piece of the top edge.
+Windows slide along the 4 straight edges of each side: --along mm long
+(3), every --stride mm (1.5), --across mm across (2.5), centred on the card's
+edge. Every crop is resampled to --ppm px per mm (40) and turned so the edge
+runs left to right with the OUTSIDE AT THE TOP: every crop looks like a
+piece of the top edge (120 x 100 px with the defaults).
 
-  crop width  = --along mm   (along the edge, step direction left to right)
-  crop height = --across mm  (centred on the outline: half outside, half in)
+Source, per side:
+  strips    the side has edge strips (app v0.7.43+): one crop PER PHOTO for
+            every window, from that photo's strip. The photos of one window
+            share a window_id and the window's label; `photo`, `turn` and
+            `native_ppm` (the strip's own px/mm, 20-40; lower ones are
+            upsampled) tell them apart.
+  picture   no strips (copies saved before v0.7.43): one crop per window from
+            the saved picture (photo 1 only, native 20 px/mm), photo = "pic".
 
-Labels (one per crop, first match wins):
-  nick-yes     overlaps a suggested nick the user confirmed ("It's a nick")
-  nick-known   overlaps a hand-entered nick (data\\manual_labels.json)
-  nick-mark    a user mark of kind "nick" within --mark-mm of the window
-  nick-no      overlaps a suggested nick the user didn't confirm
-  whitening    overlaps a counted whitening spot (the app's own finding,
-               not checked by the user)
-  partial      one of the above only grazes the window's ends (see --edge-mm)
-  nothing     none of the above (on copies saved before v0.7.40 nicks were
-               never asked about, so see the nicks_checked column)
-The CSV also has every flag separately (whitening_doubt, whitening_ignored,
-other_mark, ...) so the labels can be redrawn later without cutting again.
+Labels (one per window, first match wins):
+  nick-yes          overlaps a suggested nick the user confirmed
+  nick-known        overlaps a hand-entered nick (data\\manual_labels.json)
+  nick-mark         a user mark of kind "nick"
+  missed-whitening  a user mark of kind "other" or "whitening": whitening
+                    the app missed
+  nick-no           overlaps a suggested nick the user didn't confirm
+  whitening         overlaps a counted whitening spot (the app's own finding,
+                    not checked by the user)
+  mark-other        a user mark of another kind (dents, scratches, creases,
+                    marks)
+  partial           one of the above only touches the window's outer
+                    --edge-mm (0.5): neither a clear yes nor a clear no
+  nothing           none of the above (nicks were never asked about before
+                    v0.7.40: see nicks_checked)
 
-Writes  <POKECARD_AI_DIR>\\data\\crops\\<label>\\c<copy>_<side>_<track>_<step>.png
-        <POKECARD_AI_DIR>\\data\\crops\\index.csv
+User marks ({kind, x, y} mm) go to the nearest edge and count from 1 mm
+outside it to 1.75 mm inside. Marks of kind nick, other and whitening on
+sides with strips are SNAPPED (strips.snap_mark) to the strongest pale fleck
+or inward dip within +-1 mm of the tap that shows in every photo; the label
+then covers the snapped stretch. Unsnapped marks (nothing stood out, or no
+strips) cover the tap +- --mark-mm (0.75). index.csv keeps mark_tap_along_mm,
+mark_snapped_along_mm and mark_snapped; marks.csv lists every mark.
+
+Writes  <POKECARD_AI_DIR>\\data\\crops\\<label>\\<window_id>_<photo>.png
+        <POKECARD_AI_DIR>\\data\\crops\\index.csv   (one row per crop)
+        <POKECARD_AI_DIR>\\data\\crops\\marks.csv   (one row per user mark)
 Run:    E:\\pokecard-ai\\venv\\Scripts\\python.exe ml\\crops.py
 """
 
 import argparse
 import csv
 import json
-import math
 import shutil
 import sys
 from collections import Counter, defaultdict
@@ -39,9 +56,13 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import map_coordinates
 
-from common import EDGE_TRACKS, data_dir, load_copies, picture_path, side_geometry
+from common import (CARD_H_MM, CARD_W_MM, EDGE_TRACKS, MISSED_WHITENING_KINDS, data_dir, load_copies, mark_edge,
+                    picture_path, side_geometry, step_to_along_mm)
+from strips import SNAP_KINDS, SideStrips, snap_mark
 
-LABELS = ['nick-yes', 'nick-known', 'nick-mark', 'nick-no', 'whitening', 'partial', 'nothing']
+LABELS = ['nick-yes', 'nick-known', 'nick-mark', 'missed-whitening', 'nick-no', 'whitening', 'mark-other',
+          'partial', 'nothing']
+SIDE_MM = {'top': CARD_W_MM, 'bottom': CARD_W_MM, 'right': CARD_H_MM, 'left': CARD_H_MM}
 
 
 def overlaps(a0, a1, b0, b1):
@@ -56,26 +77,48 @@ def load_manual():
 
 
 def cut(img, g, track, s_from, s_to, across_px, out_ppm):
-    """Resamples one window. s_from/s_to: track steps (picture px, may be
-    fractional) at the crop's left and right edges. Answers an HxWx3 uint8
-    array, outside at the top."""
+    """(For sheet.py's focus strips.) Resamples a stretch of the saved
+    picture between track steps s_from and s_to, across_px picture px
+    across, outside at the top -> HxWx3 uint8."""
     ppm = g['ppm']
     w_out = max(1, round((s_to - s_from) / ppm * out_ppm))
     h_out = max(1, round(across_px / ppm * out_ppm))
-    # crop pixel centres -> track step and distance in from the outline
     steps = s_from + (np.arange(w_out) + 0.5) * (s_to - s_from) / w_out - 0.5
     d = -across_px / 2 + (np.arange(h_out) + 0.5) * across_px / h_out
-    # straight edges: a point is linear in the step (point(i) at the pixel
-    # centre i + 0.5, so steps here are already shifted by -0.5)
     x0, y0, nx, ny = g['geo'].point(track, 0)
     x1, y1, _, _ = g['geo'].point(track, 1)
-    tx, ty = x1 - x0, y1 - y0
-    X = x0 + tx * steps[None, :] + nx * d[:, None]
-    Y = y0 + ty * steps[None, :] + ny * d[:, None]
-    m = g['margin']
-    u = X + m - 0.5            # image pixel-centre coordinates (as edges.js)
-    v = Y + m - 0.5
+    X = x0 + (x1 - x0) * steps[None, :] + nx * d[:, None]
+    Y = y0 + (y1 - y0) * steps[None, :] + ny * d[:, None]
+    u, v = X + g['margin'] - 0.5, Y + g['margin'] - 0.5
     out = np.empty((h_out, w_out, 3), dtype=np.float32)
+    for c in range(3):
+        out[..., c] = map_coordinates(img[..., c], [v, u], order=1, mode='nearest')
+    return np.clip(out + 0.5, 0, 255).astype(np.uint8)
+
+
+# a point along an edge (mm from its corner-to-corner start, clockwise) ->
+# card mm, and the inward direction
+EDGE_FRAME = {
+    'top': lambda a: ((a, 0.0), (0.0, 1.0)),
+    'right': lambda a: ((CARD_W_MM, a), (-1.0, 0.0)),
+    'bottom': lambda a: ((CARD_W_MM - a, CARD_H_MM), (0.0, -1.0)),
+    'left': lambda a: ((0.0, CARD_H_MM - a), (1.0, 0.0)),
+}
+
+
+def cut_picture(img, g, edge, a0, along_mm, across_mm, ppm):
+    """A window from the saved picture, in mm: along a0..a0+along_mm, depth
+    -across/2..+across/2, at ppm, outside at the top -> uint8."""
+    w, h = round(along_mm * ppm), round(across_mm * ppm)
+    along = a0 + (np.arange(w) + 0.5) / ppm
+    depth = -across_mm / 2 + (np.arange(h) + 0.5) / ppm
+    (px0, py0), (nx, ny) = EDGE_FRAME[edge](0.0)
+    (px1, py1), _ = EDGE_FRAME[edge](1.0)
+    X = px0 + (px1 - px0) * along[None, :] + nx * depth[:, None]       # card mm
+    Y = py0 + (py1 - py0) * along[None, :] + ny * depth[:, None]
+    u = X * g['ppm'] + g['margin'] - 0.5                              # picture pixel centres
+    v = Y * g['ppm'] + g['margin'] - 0.5
+    out = np.empty((h, w, 3), dtype=np.float32)
     for c in range(3):
         out[..., c] = map_coordinates(img[..., c], [v, u], order=1, mode='nearest')
     return np.clip(out + 0.5, 0, 255).astype(np.uint8)
@@ -86,8 +129,80 @@ def edge_row(crop):
     brightness (column median), in crop px from the top."""
     grey = crop.astype(np.float32).mean(axis=2)
     prof = np.median(grey, axis=1)
-    grad = np.abs(np.diff(prof))
-    return int(np.argmax(grad)) + 0.5
+    return int(np.argmax(np.abs(np.diff(prof)))) + 0.5
+
+
+def windows(edge, along_mm, stride_mm, corner_mm):
+    """Window starts (mm along) on an edge's straight part, centred."""
+    L = SIDE_MM[edge] - 2 * corner_mm
+    if L < along_mm:
+        return []
+    k = int((L - along_mm) // stride_mm) + 1
+    start = corner_mm + (L - (along_mm + (k - 1) * stride_mm)) / 2
+    return [start + j * stride_mm for j in range(k)]
+
+
+def side_items(copy, side, g, manual, ss, args, mark_log):
+    """Everything known about a side's edges, as stretches in mm along each
+    edge: dict(edge -> list of {kind, from, to, ...})."""
+    detail = g['detail']
+    e = detail.get('edges') or {}
+    ignored = set(e.get('ignored') or [])
+    out = defaultdict(list)
+
+    def add(edge, kind, a, b, **kw):
+        out[edge].append(dict(kind=kind, from_=a, to=b, **kw))
+
+    mm = lambda st: step_to_along_mm(st - 0.5, g)       # step's start edge -> mm
+    for s in e.get('spots') or []:
+        if s['track'] not in SIDE_MM:
+            continue
+        kind = 'spot-doubt' if s.get('doubt') else 'spot-ignored' if s['id'] in ignored else 'spot'
+        add(s['track'], kind, mm(s['from']), mm(s['to'] + 1))
+    for n in e.get('nicks') or []:
+        if n['track'] in SIDE_MM:
+            add(n['track'], 'nick-yes' if n.get('yes') else 'nick-no', mm(n['from']), mm(n['to'] + 1))
+    for m in manual:
+        if m.get('copy') == copy['id'] and m.get('side') == side and m['track'] in SIDE_MM:
+            add(m['track'], 'nick-known', mm(m['from']), mm(m['to'] + 1))
+    for mk in detail.get('marks') or []:
+        kind = mk.get('kind') or 'other'
+        edge, tap, depth = mark_edge(mk)
+        rec = dict(copy=copy['id'], side=side, mark_id=mk.get('id'), kind=kind, x=mk['x'], y=mk['y'], edge=edge,
+                   depth_mm=round(depth, 2), tap_along_mm=round(tap, 2), near_edge=int(-1.0 <= depth <= args.across / 2 + 0.5),
+                   snapped=0, snapped_along_mm='', snapped_from_mm='', snapped_to_mm='', snap_score='', photos=0)
+        if rec['near_edge']:
+            a, b = tap - args.mark_mm, tap + args.mark_mm
+            if kind in SNAP_KINDS and ss:
+                sn = snap_mark(ss, mk)
+                rec.update(snap_score=sn['score'], photos=sn['photos'])
+                if sn['snapped']:
+                    a, b = sn['from_'], sn['to']
+                    rec.update(snapped=1, snapped_along_mm=sn['along'], snapped_from_mm=a, snapped_to_mm=b)
+            label = 'nick-mark' if kind == 'nick' else 'missed-whitening' if kind in MISSED_WHITENING_KINDS else 'mark-other'
+            add(edge, label, a, b, tap=round(tap, 2), snapped=rec['snapped'],
+                snapped_along=rec['snapped_along_mm'], mark_kind=kind)
+        mark_log.append(rec)
+    return out
+
+
+def label_window(items, a0, a1, edge_mm):
+    """(label, item, flags) for a window a0..a1 mm."""
+    lo, hi = a0 + edge_mm, a1 - edge_mm
+    inside = lambda it: overlaps(lo, hi, it['from_'], it['to'])
+    touching = lambda it: overlaps(a0, a1, it['from_'], it['to'])
+    flags = dict(whitening_doubt=int(any(touching(i) for i in items if i['kind'] == 'spot-doubt')),
+                 whitening_ignored=int(any(touching(i) for i in items if i['kind'] == 'spot-ignored')),
+                 marks=' '.join(sorted({i['mark_kind'] for i in items if 'mark_kind' in i and touching(i)})))
+    order = ['nick-yes', 'nick-known', 'nick-mark', 'missed-whitening', 'nick-no', 'spot', 'mark-other']
+    for kind in order:
+        for it in items:
+            if it['kind'] == kind and inside(it):
+                return ('whitening' if kind == 'spot' else kind), it, flags
+    for it in items:
+        if it['kind'] in order and touching(it):
+            return 'partial', it, flags
+    return 'nothing', None, flags
 
 
 def main():
@@ -95,11 +210,12 @@ def main():
     ap.add_argument('--along', type=float, default=3.0, help='window length along the edge, mm (3)')
     ap.add_argument('--across', type=float, default=2.5, help='window size across the edge, mm (2.5)')
     ap.add_argument('--stride', type=float, default=1.5, help='step between windows, mm (1.5)')
-    ap.add_argument('--ppm', type=float, default=20.0, help='crop resolution, px per mm (20)')
-    ap.add_argument('--mark-mm', type=float, default=1.5, help='how near a nick mark must be, mm (1.5)')
+    ap.add_argument('--ppm', type=float, default=40.0, help='crop resolution, px per mm (40)')
+    ap.add_argument('--mark-mm', type=float, default=0.75,
+                    help='an unsnapped user mark covers its tap +- this, mm along the edge (0.75)')
     ap.add_argument('--edge-mm', type=float, default=0.5,
                     help="a label must reach this far inside the window's ends, mm (0.5); else 'partial'")
-    ap.add_argument('--keep', action='store_true', help="don't clear the old crops first")
+    ap.add_argument('--no-strips', action='store_true', help='cut every side from its saved picture')
     args = ap.parse_args()
 
     copies = load_copies()
@@ -107,14 +223,15 @@ def main():
         sys.exit('No copies downloaded yet: run ml\\fetch.py first.')
     manual = load_manual()
     out_dir = data_dir() / 'crops'
-    if out_dir.exists() and not args.keep:
+    if out_dir.exists():
         shutil.rmtree(out_dir)
     for lab in LABELS:
         (out_dir / lab).mkdir(parents=True, exist_ok=True)
 
-    rows, problems, short_margin = [], [], []
-    offsets = defaultdict(list)       # (copy, side, track) -> edge offsets, mm
-    counts = Counter()
+    rows, problems, mark_log = [], [], []
+    short_margin = 0
+    offsets = defaultdict(list)
+    windows_by_label, crops_by_source = Counter(), Counter()
     for cid, copy in sorted(copies.items()):
         for side in ('front', 'back'):
             path = picture_path(copy, side)
@@ -123,141 +240,89 @@ def main():
                 continue
             im = Image.open(path).convert('RGB')
             g = side_geometry(copy, side, *im.size)
-            detail = g['detail']
-            edges = detail.get('edges')
+            edges = g['detail'].get('edges')
             if not edges:
                 problems.append(f'copy {cid} {side}: no edges check saved, skipped')
                 continue
-            if abs(g['H'] / g['ppm'] - 88) > 1.0:
-                problems.append(f'copy {cid} {side}: card comes out {g["W"] / g["ppm"]:.1f} x {g["H"] / g["ppm"]:.1f} mm (expected 63 x 88)')
-            if g['margin'] < args.across / 2 * g['ppm']:
-                short_margin.append((cid, side, g['margin'], g['margin'] / g['ppm']))
-            img = np.asarray(im, dtype=np.float32)
-            ignored = set(edges.get('ignored') or [])
-            spots = edges.get('spots') or []
-            nicks = edges.get('nicks')                 # None on copies before v0.7.40
-            nicks_checked = nicks is not None
+            ss = None if args.no_strips else SideStrips(copy, side)
+            n_layouts = len(g['detail'].get('strips') or [])
+            if ss is not None and n_layouts and len(ss.photos) < n_layouts:
+                problems.append(f'copy {cid} {side}: {n_layouts} strips in the layout, {len(ss.photos)} downloaded')
+            source = 'strips' if ss else 'picture'
+            if source == 'picture':
+                img = np.asarray(im, dtype=np.float32)
+                if g['margin'] < args.across / 2 * g['ppm']:
+                    short_margin += 1
+            items = side_items(copy, side, g, manual, ss, args, mark_log)
+            nicks = edges.get('nicks')
             unchecked = set(edges.get('nicksUnchecked') or [])
-            marks = detail.get('marks') or []
-            mine = [m for m in manual if m.get('copy') == cid and m.get('side') == side]
-            ppm = g['ppm']
-            along_px, across_px, stride_px = args.along * ppm, args.across * ppm, args.stride * ppm
-
-            for track in EDGE_TRACKS:
-                n = g['geo'].n[track]
-                if n < along_px:
-                    continue
-                k = int((n - along_px) // stride_px) + 1
-                start = (n - (along_px + (k - 1) * stride_px)) / 2   # centre the run of windows
-                for j in range(k):
-                    s0 = start + j * stride_px
-                    s1 = s0 + along_px
-                    # A label counts only where its stretch reaches the window's
-                    # inner part (--edge-mm in from each end); a stretch that only
-                    # touches the ends makes the crop "partial" (left out of
-                    # training, it is neither a clear yes nor a clear no). With
-                    # the defaults every point is in the inner part of a window.
-                    lo, hi = s0 + args.edge_mm * ppm, s1 - 1 - args.edge_mm * ppm
-                    lo_all, hi_all = s0, s1 - 1
-                    mid = (s0 + s1) / 2
-                    cx, cy, nx, ny = g['geo'].point(track, mid - 0.5)
-                    f = {}
-                    hit = None                                # (from, to) steps of the main label
-
-                    def first(items, a=None, b=None):
-                        a, b = (lo, hi) if a is None else (a, b)
-                        for it in items:
-                            if overlaps(a, b, it['from'], it['to']):
-                                return it
-                        return None
-
-                    graze = first([x for x in (nicks or []) if x.get('track') == track]
-                                  + [x for x in mine if x.get('track') == track]
-                                  + [x for x in spots if x['track'] == track and not x.get('doubt') and x['id'] not in ignored],
-                                  lo_all, hi_all)
-
-                    yes = first([x for x in (nicks or []) if x.get('track') == track and x.get('yes')])
-                    no = first([x for x in (nicks or []) if x.get('track') == track and not x.get('yes')])
-                    known = first([x for x in mine if x.get('track') == track])
-                    counted = first([x for x in spots if x['track'] == track and not x.get('doubt') and x['id'] not in ignored])
-                    f['whitening_doubt'] = int(first([x for x in spots if x['track'] == track and x.get('doubt')]) is not None)
-                    f['whitening_ignored'] = int(first([x for x in spots if x['track'] == track and x['id'] in ignored]) is not None)
-                    near_nick = near_other = None
-                    for mk in marks:
-                        # mark in card px, measured along and in from the window's centre
-                        mx, my = mk['x'] * ppm - cx, mk['y'] * ppm - cy
-                        a = abs(mx * ny - my * nx)            # along (perpendicular to the normal)
-                        inn = mx * nx + my * ny
-                        if a <= along_px / 2 + args.mark_mm * ppm and -args.mark_mm * ppm <= inn <= across_px / 2 + args.mark_mm * ppm:
-                            if mk.get('kind') == 'nick':
-                                near_nick = mk
-                            else:
-                                near_other = mk
-                    f['other_mark'] = near_other['kind'] if near_other else ''
-
-                    if yes:
-                        label, hit = 'nick-yes', (yes['from'], yes['to'])
-                    elif known:
-                        label, hit = 'nick-known', (known['from'], known['to'])
-                    elif near_nick:
-                        label = 'nick-mark'
-                        # along the track: the tangent is (ny, -nx) on straight edges
-                        a = (near_nick['x'] * ppm - cx) * ny - (near_nick['y'] * ppm - cy) * nx
-                        hit = (mid + a - 0.5 * ppm, mid + a + 0.5 * ppm)
-                    elif no:
-                        label, hit = 'nick-no', (no['from'], no['to'])
-                    elif counted:
-                        label, hit = 'whitening', (counted['from'], counted['to'])
-                    elif graze:
-                        label, hit = 'partial', (graze['from'], graze['to'])
+            corner = g['R'] / g['ppm']
+            for edge in EDGE_TRACKS:
+                for a0 in windows(edge, args.along, args.stride, corner):
+                    a1 = a0 + args.along
+                    label, it, flags = label_window(items[edge], a0, a1, args.edge_mm)
+                    wid = f'c{cid}_{side}_{edge}_{int(round(a0 * 10)):04d}'
+                    windows_by_label[label] += 1
+                    if source == 'strips':
+                        shots = [(str(p), lay.get('turn') or 'first', lay['ppm'], ss.crop(k, edge, a0, args.along, args.across, args.ppm))
+                                 for k, (p, lay, _) in enumerate(ss.photos)]
                     else:
-                        label = 'nothing'
-
-                    crop = cut(img, g, track, s0, s1, across_px, args.ppm)
-                    er = edge_row(crop)
-                    offset_mm = er / args.ppm - args.across / 2      # + = card starts further in
-                    offsets[(cid, side, track)].append(offset_mm)
-                    name = f'c{cid}_{side}_{track}_{int(round(s0)):04d}.png'
-                    Image.fromarray(crop).save(out_dir / label / name)
-                    w = crop.shape[1]
-                    hx = ('', '')
-                    if hit:   # where the labelled stretch sits in the crop, crop px
-                        hx = (max(0, round((hit[0] - s0) / along_px * w)), min(w, round((hit[1] + 1 - s0) / along_px * w)))
-                    rows.append({
-                        'file': f'{label}/{name}', 'label': label, 'copy': cid, 'card': copy.get('card_name'),
-                        'set': copy.get('set_code'), 'number': copy.get('card_number'), 'status': copy.get('status'),
-                        'side': side, 'track': track, 'step_from': round(s0, 1), 'step_to': round(s1, 1),
-                        'mm_from': round(s0 / ppm, 2), 'mm_to': round(s1 / ppm, 2), 'src_ppm': round(ppm, 3),
-                        'nicks_checked': int(nicks_checked and track not in unchecked),
-                        'whitening_doubt': f['whitening_doubt'], 'whitening_ignored': f['whitening_ignored'],
-                        'other_mark': f['other_mark'], 'hit_x0': hx[0], 'hit_x1': hx[1],
-                        'edge_offset_mm': round(offset_mm, 3), 'app_version': copy['result'].get('appVersion'),
-                    })
-                    counts[label] += 1
+                        shots = [('pic', 'first', round(g['ppm'], 2), cut_picture(img, g, edge, a0, args.along, args.across, args.ppm))]
+                    for photo, turn, nppm, crop in shots:
+                        name = f'{wid}_{"p" + photo if photo != "pic" else "pic"}.png'
+                        Image.fromarray(crop).save(out_dir / label / name)
+                        offset = edge_row(crop) / args.ppm - args.across / 2
+                        offsets[(cid, side, edge, source)].append(offset)
+                        w = crop.shape[1]
+                        hx = ('', '')
+                        if it:
+                            hx = (max(0, round((it['from_'] - a0) / args.along * w)),
+                                  min(w, max(round((it['from_'] - a0) / args.along * w) + 1, round((it['to'] - a0) / args.along * w))))
+                        rows.append({
+                            'file': f'{label}/{name}', 'label': label, 'window_id': wid, 'source': source,
+                            'photo': photo, 'turn': turn, 'native_ppm': nppm, 'crop_ppm': args.ppm,
+                            'copy': cid, 'card': copy.get('card_name'), 'set': copy.get('set_code'),
+                            'number': copy.get('card_number'), 'status': copy.get('status'), 'side': side, 'edge': edge,
+                            'along_mm_from': round(a0, 2), 'along_mm_to': round(a1, 2),
+                            'nicks_checked': int(nicks is not None and edge not in unchecked),
+                            'whitening_doubt': flags['whitening_doubt'], 'whitening_ignored': flags['whitening_ignored'],
+                            'marks': flags['marks'],
+                            'mark_tap_along_mm': it.get('tap', '') if it else '',
+                            'mark_snapped_along_mm': it.get('snapped_along', '') if it else '',
+                            'mark_snapped': it.get('snapped', '') if it and 'tap' in it else '',
+                            'hit_x0': hx[0], 'hit_x1': hx[1], 'edge_offset_mm': round(offset, 3),
+                            'app_version': copy['result'].get('appVersion'),
+                        })
+                        crops_by_source[source] += 1
 
     with open(out_dir / 'index.csv', 'w', newline='', encoding='utf-8') as fh:
         wr = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
         wr.writeheader()
         wr.writerows(rows)
+    if mark_log:
+        with open(out_dir / 'marks.csv', 'w', newline='', encoding='utf-8') as fh:
+            wr = csv.DictWriter(fh, fieldnames=list(mark_log[0].keys()))
+            wr.writeheader()
+            wr.writerows(mark_log)
 
-    # Geometry check: the card's edge should sit in the middle row of every
-    # crop. A track whose median is off by more than 0.25 mm is reported.
-    for (cid, side, track), offs in sorted(offsets.items()):
+    for (cid, side, edge, source), offs in sorted(offsets.items()):
         med = float(np.median(offs))
         if abs(med) > 0.25:
-            problems.append(f'copy {cid} {side} {track}: the biggest brightness step sits {med:+.2f} mm from the crop middle '
-                            f'(median; a shadow on the mat or print near the edge can cause this - check a focus strip)')
+            problems.append(f'copy {cid} {side} {edge} ({source}): the biggest brightness step sits {med:+.2f} mm from the '
+                            f'crop middle (median; a shadow on the mat or print near the edge can cause this)')
     if short_margin:
-        mm = min(s[3] for s in short_margin)
-        problems.insert(0, f'{len(short_margin)} picture side(s) have a margin of only {mm:.2f} mm (e.g. {short_margin[0][2]} px), '
-                           f'less than half the window ({args.across / 2} mm): the outermost row(s) of those crops '
-                           f'repeat the last photo pixel')
-    allo = np.array([o for v in offsets.values() for o in v])
-    print(f'{len(rows)} crops from {len(copies)} copies -> {out_dir}')
+        problems.insert(0, f'{short_margin} picture-source side(s) have less margin than half the window: '
+                           f'the outermost row(s) of those crops repeat the last photo pixel')
+    n_windows = sum(windows_by_label.values())
+    print(f'{len(rows)} crops ({crops_by_source["strips"]} from strips, {crops_by_source["picture"]} from pictures) '
+          f'in {n_windows} windows, {len(copies)} copies, {args.ppm:g} px/mm -> {out_dir}')
+    print('Windows per label:')
     for lab in LABELS:
-        print(f'  {lab:11s} {counts[lab]}')
-    print(f'Edge position in the crops: median {np.median(allo):+.3f} mm, 90% within '
-          f'{np.percentile(np.abs(allo), 90):.2f} mm of the middle row.')
+        print(f'  {lab:17s} {windows_by_label[lab]}')
+    for m in mark_log:
+        state = (f'snapped to {m["snapped_along_mm"]} mm ({m["snapped_from_mm"]}-{m["snapped_to_mm"]}), score {m["snap_score"]}'
+                 if m['snapped'] else f'not snapped (score {m["snap_score"] or "-"})' if m['near_edge'] else 'not near an edge')
+        print(f'  mark: copy {m["copy"]} {m["side"]} {m["kind"]} -> {m["edge"]} edge, tap {m["tap_along_mm"]} mm, {state}')
     if problems:
         print('Problems:')
         for p in dict.fromkeys(problems):

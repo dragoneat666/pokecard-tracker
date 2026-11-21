@@ -20,7 +20,10 @@
                       grey ticks along the top the corners; coloured bars
                       under photo 1 show what the app found on the saved
                       picture (red whitening, blue nicks/hand labels, grey
-                      unconfirmed nicks). The ruler is mm along the edge
+                      unconfirmed nicks). User marks: a yellow arrow (with
+                      the kind's letter) above every photo at the tap, and
+                      a green bar under every photo where the mark snapped
+                      to (strips.snap_mark). The ruler is mm along the edge
                       from the corner.
 
 Writes into <POKECARD_AI_DIR>\\runs\\sheets\\.
@@ -37,9 +40,14 @@ from collections import defaultdict
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from common import (EDGE_TRACKS, ai_dir, data_dir, load_copies, picture_path, side_geometry, step_to_along_mm,
-                    strip_layouts, strip_path)
+from common import (EDGE_TRACKS, ai_dir, data_dir, load_copies, mark_edge, picture_path, side_geometry,
+                    step_to_along_mm, strip_layouts, strip_path)
+
+GREEN = (30, 160, 60)
+YELLOW, MARK_LETTER = (240, 190, 0), {'nick': 'N', 'dents': 'D', 'scratches': 'S', 'creases': 'C', 'marks': 'M',
+                                      'other': '?', 'whitening': 'W'}
 from crops import LABELS, cut, load_manual
+from strips import SNAP_KINDS, SideStrips, snap_mark
 
 RED, GREY, TEXT, BG = (230, 40, 40), (150, 150, 150), (20, 20, 20), (245, 245, 245)
 
@@ -68,7 +76,9 @@ def grid(rows, crops_dir, zoom, cols, title):
         d.line([(w * zoom + 4, mid), (w * zoom + 7, mid)], fill=GREY, width=2)
         if r['hit_x0'] != '':
             d.rectangle([4 + int(r['hit_x0']) * zoom, h * zoom + 5, 4 + max(int(r['hit_x0']) + 1, int(r['hit_x1'])) * zoom, h * zoom + 8], fill=RED)
-        d.text((4, h * zoom + 9), f"c{r['copy']} {r['side'][0]} {r['track']} {int(float(r['step_from']))}", fill=TEXT, font=f)
+        photo = r.get('photo', '')
+        d.text((4, h * zoom + 9), f"c{r['copy']} {r['side'][0]} {r['edge']} {float(r['along_mm_from']):.1f}"
+                                  f"{' ' + ('p' + photo if photo != 'pic' else 'pic') if photo else ''}", fill=TEXT, font=f)
         tiles.append(tile)
     tw, th = tiles[0].size
     cols = min(cols, len(tiles))
@@ -144,6 +154,15 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
         raise SystemExit(f'copy {copy["id"]} {side}: no strips downloaded')
     f, fb = font(13), font(15)
     s = ppm * zoom                                  # output px per mm
+    user_marks = (((copy.get('result') or {}).get('details') or {}).get(side) or {}).get('marks') or []
+    # where each mark snaps to (strips.snap_mark), drawn as a green bar
+    snaps = {}
+    sides_strips = SideStrips(copy, side)
+    for m in user_marks:
+        if (m.get('kind') or 'other') in SNAP_KINDS:
+            sn = snap_mark(sides_strips, m)
+            if sn['snapped']:
+                snaps[id(m)] = sn
     blocks = []
     for edge in edges:
         tiles = []
@@ -180,6 +199,26 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
                 x = 15 + round(cx - shift)
                 if 15 <= x <= 15 + band.width:
                     d.line([(x, y - 5), (x, y - 1)], fill=GREY, width=2)
+            # the user's marks on this edge, on every photo (they're all lined
+            # up with photo 1): a yellow arrow above the strip, pointing at
+            # the spot, with the mark's letter, and a short tick at its depth
+            for m in user_marks:
+                medge, along, inn = mark_edge(m)
+                if medge != edge:
+                    continue
+                mx = 15 + round(out_px + along * s - shift)
+                if not (15 <= mx <= 15 + band.width):
+                    continue
+                d.polygon([(mx - 5, y - 9), (mx + 5, y - 9), (mx, y - 1)], fill=YELLOW, outline=TEXT)
+                d.text((mx + 7, y - 15), MARK_LETTER.get(m.get('kind'), '?'), fill=TEXT, font=f)
+                my = y + round(out_px + inn * s)
+                d.line([(mx - 9, my), (mx - 4, my)], fill=YELLOW, width=2)
+                d.line([(mx + 4, my), (mx + 9, my)], fill=YELLOW, width=2)
+                sn = snaps.get(id(m))
+                if sn:
+                    xa = 15 + round(out_px + sn['from_'] * s - shift)
+                    xb = max(xa + 2, 15 + round(out_px + sn['to'] * s - shift))
+                    d.rectangle([max(15, xa), y + band.height + 8, min(15 + band.width, xb), y + band.height + 11], fill=GREEN)
             if photo == photos[0][0]:
                 for a, b, colour in labels_along(copy, side, edge):
                     xa, xb = 15 + round(out_px + a * s - shift), 15 + round(out_px + b * s - shift)
@@ -214,7 +253,7 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--max', type=int, default=240, help='most crops on one sheet (240)')
-    ap.add_argument('--zoom', type=int, default=2, help='magnification of the crops (2)')
+    ap.add_argument('--zoom', type=int, default=1, help='magnification of the crops (1)')
     ap.add_argument('--cols', type=int, default=12, help='crops per row (12)')
     ap.add_argument('--focus', action='append', default=[], help='copy:side:track:from:to, e.g. 8:back:top:600:800')
     ap.add_argument('--seed', type=int, default=1)

@@ -143,6 +143,27 @@ def strip_u(along_mm, layout):
     return layout['outPx'] + along_mm * layout['ppm'] - 0.5
 
 
+CARD_H_MM = 88.0
+# user mark kinds (result.details[side].marks); "other" and "whitening" near
+# an edge are treated as whitening the app missed
+MISSED_WHITENING_KINDS = {'other', 'whitening'}
+
+
+def mark_edge(mark):
+    """A user mark ({kind, x, y} in mm from the card's top-left) -> (edge,
+    along_mm, in_mm): the nearest straight edge, how far along it from its
+    corner-to-corner start (clockwise, as the tracks and strips run) and
+    how far in from it (negative = outside the card)."""
+    x, y = mark['x'], mark['y']
+    cand = [
+        ('top', x, y),
+        ('right', y, CARD_W_MM - x),
+        ('bottom', CARD_W_MM - x, CARD_H_MM - y),
+        ('left', CARD_H_MM - y, x),
+    ]
+    return min(cand, key=lambda c: abs(c[2]))
+
+
 def step_to_along_mm(step, g):
     """A straight-edge track step of the saved picture (side_geometry g) ->
     mm along that edge from the card's corner-to-corner start, the same
