@@ -156,7 +156,7 @@ router.get('/export', async (req, res, next) => {
     let where = '';
     if (req.query.since) {
       const since = new Date(String(req.query.since));
-      if (Number.isNaN(since.getTime())) return res.status(400).json({ error: 'since isn't a valid time' });
+      if (Number.isNaN(since.getTime())) return res.status(400).json({ error: "since isn't a valid time" });
       params.push(since.toISOString());
       where = 'WHERE g.updated_at > $1';
     }
