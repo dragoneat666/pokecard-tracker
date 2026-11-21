@@ -211,7 +211,9 @@ export function scanEdges(image, margin, settings) {
       }
       depth[i] = count;
     }
-    tracks[key] = { depth, edge };
+    // guess: where the straightened outline was used (the card's edge
+    // didn't stand out), so `edge` there says nothing about the outline
+    tracks[key] = { depth, edge, guess };
   }
   // Edges lit along much of their length (glints, if there is no second
   // photo to tell).
@@ -364,10 +366,125 @@ export function findSpots(scan, settings) {
   return spots;
 }
 
+// Possible nicks: places along a straight edge where the card's outline dips
+// in (a sliver of the edge missing), at least nicks.minPx deeper than the
+// outline around it (its median over nicks.windowMm either way), along
+// minRunMm-maxRunMm. Blur, glints and print near the edge make dips like that
+// too, but those don't stay with the card when it's turned, so a dip has to
+// show in the same place in at least 2 of the photos (and half of them). A
+// nick can fill with light in a photo where the lamp catches it, so the other
+// photos only need a faint dip there (weakPx along weakRunMm). A nick nearly
+// always shows a fleck of the pale card inside it, so one of the photos must
+// read some whitening there too (that also leaves out most dips that are
+// only blur). Where a photo couldn't find the card's edge along much of a
+// side (a dark border on a dark background: maxGuess), that photo doesn't
+// vote on the side; with fewer than 2 photos left, the side isn't checked.
+// On the photos so far: 0-1 suggestions on clean sides, the user's real nick
+// found, frayed edges on played cards found. The outline is only measured to
+// a pixel (0.05 mm), so these are suggestions for the user to check, never
+// counted on their own. scans: the first photo's
+// scan, then the turned photos' (lined up with it). Answers [{ id, track,
+// from, to, lengthMm, depthMm, votes, photos }].
+export function findNicks(scans, settings) {
+  const s = settings.edges.nicks;
+  if (!s || scans.length < 2) return [];
+  const ppm = scans[0].ppm;
+  const half = Math.round(s.windowMm * ppm);
+  const strong = { half, minPx: s.minPx, minRun: Math.round(s.minRunMm * ppm), maxRun: Math.round(s.maxRunMm * ppm) };
+  const weak = { half, minPx: s.weakPx, minRun: Math.max(2, Math.round(s.weakRunMm * ppm)), maxRun: strong.maxRun };
+  const slack = settings.edges.alignPx;
+  // the photos that can vote on each side
+  const voters = {};
+  for (const key of ['top', 'right', 'bottom', 'left']) {
+    voters[key] = new Set(scans.map((sc, p) => (guessShare(sc.tracks[key]) <= s.maxGuess ? p : -1)).filter(p => p >= 0));
+  }
+  const needOn = (key) => Math.max(2, Math.ceil(voters[key].size / 2));
+  // clear dips in any photo, grouped where they overlap on the same edge
+  const groups = [];
+  scans.forEach((sc, p) => {
+    for (const d of dipsOf(sc, strong)) {
+      if (!voters[d.track].has(p)) continue;
+      const g = groups.find(x => x.track === d.track && d.from <= x.to + slack && d.to >= x.from - slack);
+      if (g) {
+        g.from = Math.min(g.from, d.from); g.to = Math.max(g.to, d.to);
+        g.depth = Math.max(g.depth, d.depth); g.seen.add(p);
+      } else {
+        groups.push({ ...d, seen: new Set([p]) });
+      }
+    }
+  });
+  // ...and the photos with at least a faint dip in the same place
+  const faint = scans.map(sc => dipsOf(sc, weak));
+  for (const g of groups) {
+    faint.forEach((dips, p) => {
+      if (voters[g.track].has(p) && dips.some(d => d.track === g.track && d.from <= g.to + slack && d.to >= g.from - slack)) g.seen.add(p);
+    });
+  }
+  const pale = (g) => scans.some((sc, p) => {
+    if (!voters[g.track].has(p)) return false;
+    const d = sc.tracks[g.track].depth;
+    for (let i = Math.max(0, g.from - slack); i <= Math.min(d.length - 1, g.to + slack); i++) if (d[i] >= s.minPale) return true;
+    return false;
+  });
+  return groups
+    .filter(g => voters[g.track].size >= 2 && g.seen.size >= needOn(g.track) && pale(g))
+    .map(g => ({
+      id: `nick-${g.track}-${g.from}`, track: g.track, from: g.from, to: g.to,
+      lengthMm: round((g.to - g.from + 1) / ppm, 2), depthMm: round(g.depth / ppm, 2),
+      votes: g.seen.size, photos: voters[g.track].size,
+    }));
+}
+
+// The sides (of top/right/bottom/left) where fewer than 2 photos found the
+// card's edge well enough to look for nicks.
+export function nicksUnchecked(scans, settings) {
+  if (scans.length < 2) return ['top', 'right', 'bottom', 'left'];
+  return ['top', 'right', 'bottom', 'left'].filter(key =>
+    scans.filter(sc => guessShare(sc.tracks[key]) <= settings.edges.nicks.maxGuess).length < 2);
+}
+
+function guessShare(track) {
+  const g = track.guess;
+  if (!g || !g.length) return 0;
+  let n = 0;
+  for (let i = 0; i < g.length; i++) n += g[i];
+  return n / g.length;
+}
+
+function dipsOf(scan, { half, minPx, minRun, maxRun }) {
+  const out = [];
+  const win = [];
+  for (const key of ['top', 'right', 'bottom', 'left']) {
+    const { edge: e, guess } = scan.tracks[key], n = e.length;
+    const ok = (i) => !Number.isNaN(e[i]) && !guess?.[i];
+    const dip = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!ok(i)) continue;
+      win.length = 0;
+      for (let j = Math.max(0, i - half); j <= Math.min(n - 1, i + half); j++) if (ok(j)) win.push(e[j]);
+      if (win.length < half) continue;
+      win.sort((a, b) => a - b);
+      dip[i] = e[i] - win[win.length >> 1];
+    }
+    let from = -1, deepest = 0;
+    for (let i = 0; i <= n; i++) {
+      if (i < n && dip[i] >= minPx) {
+        if (from < 0) { from = i; deepest = 0; }
+        deepest = Math.max(deepest, dip[i]);
+      } else if (from >= 0) {
+        const len = i - from;
+        if (len >= minRun && len <= maxRun) out.push({ track: key, from, to: i - 1, depth: deepest });
+        from = -1;
+      }
+    }
+  }
+  return out;
+}
+
 // One side's numbers from its spots, leaving out spots in doubt and those
-// marked "not whitening". Answers { lengthMm, depthMm, corners, edges,
-// counted, doubtTracks }.
-export function measureEdges(spots, ignored = [], doubtTracks = []) {
+// marked "not whitening", plus the nicks the user confirmed or added. Answers
+// { lengthMm, depthMm, corners, edges, counted, doubtTracks, nicks }.
+export function measureEdges(spots, ignored = [], doubtTracks = [], nicks = 0) {
   const skip = new Set(ignored);
   const counted = spots.filter(sp => !sp.doubt && !skip.has(sp.id));
   const lengthMm = round(counted.reduce((t, sp) => t + sp.lengthMm, 0), 2);
@@ -379,6 +496,7 @@ export function measureEdges(spots, ignored = [], doubtTracks = []) {
     edges: ['top', 'right', 'bottom', 'left'].filter(c => where.has(c)).length,
     counted: counted.length,
     doubtTracks,
+    nicks,
   };
 }
 
@@ -392,8 +510,8 @@ export function doubtTracksOf(scan, settings) {
   return TRACKS.filter(t => out.has(t));
 }
 
-// The best grade the whitening allows, from the front and/or back numbers.
-// Answers { cap, low, high, limitedBy, reason, unchecked } or null.
+// The best grade the whitening and nicks allow, from the front and/or back
+// numbers. Answers { cap, low, high, limitedBy, reason, unchecked } or null.
 export function edgesCap(front, back, settings) {
   const t = settings.edges;
   const capOf = (m, face, lenK, depthAdd) => {
@@ -403,14 +521,16 @@ export function edgesCap(front, back, settings) {
     }
     return t.floor;
   };
+  const nickCap = (n) => (t.nickGrades || []).find(row => n <= row.nicks)?.grade ?? t.floor;
   const per = {};
   for (const [face, m] of [['front', front], ['back', back]]) {
     if (!m) continue;
+    const wCap = capOf(m, face, 1, 0), nicks = m.nicks || 0, nCap = nickCap(nicks);
     per[face] = {
-      cap: capOf(m, face, 1, 0),
-      high: capOf(m, face, 1 - t.closeShare, -t.closeDepthMm),
-      low: capOf({ lengthMm: m.lengthMm + t.closeMinMm, depthMm: m.depthMm }, face, 1 + t.closeShare, t.closeDepthMm),
-      lengthMm: m.lengthMm, depthMm: m.depthMm,
+      cap: Math.min(wCap, nCap),
+      high: Math.min(capOf(m, face, 1 - t.closeShare, -t.closeDepthMm), nCap),
+      low: Math.min(capOf({ lengthMm: m.lengthMm + t.closeMinMm, depthMm: m.depthMm }, face, 1 + t.closeShare, t.closeDepthMm), nCap),
+      lengthMm: m.lengthMm, depthMm: m.depthMm, wCap, nicks, nCap,
     };
   }
   const list = Object.entries(per);
@@ -418,8 +538,12 @@ export function edgesCap(front, back, settings) {
   const cap = Math.min(...list.map(([, p]) => p.cap));
   const high = Math.min(...list.map(([, p]) => p.high));
   const low = Math.min(...list.map(([, p]) => p.low));
-  const limiting = list.filter(([, p]) => p.cap === cap)
-    .map(([face, p]) => (p.lengthMm ? `${face}: ${p.lengthMm} mm of whitening, up to ${p.depthMm} mm deep` : `${face}: no whitening found`));
+  const limiting = list.filter(([, p]) => p.cap === cap).map(([face, p]) => {
+    const why = [];
+    if (p.wCap === cap) why.push(p.lengthMm ? `${p.lengthMm} mm of whitening, up to ${p.depthMm} mm deep` : 'no whitening found');
+    if (p.nicks && p.nCap === cap) why.push(`${p.nicks} nick${p.nicks > 1 ? 's' : ''}`);
+    return `${face}: ${why.join(', ')}`;
+  });
   const unchecked = [front, back].filter(Boolean).reduce((n, m) => n + (m.doubtTracks?.length || 0), 0);
   return { cap, low, high, ...per, limitedBy: limiting.join('; '), unchecked };
 }

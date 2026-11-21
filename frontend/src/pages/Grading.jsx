@@ -38,9 +38,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLeaveGuard } from '../leaveGuard.js';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
-import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
-import { emptySurface, surfaceText } from '../grading/surface.js';
+import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
 import { estimateOf, whiteningText, VERSIONS } from '../grading/estimate.js';
 import { api, isNative } from '../api.js';
 import { APP_VERSION } from '../version.js';
@@ -49,6 +49,7 @@ import CornerEditor from '../components/grading/CornerEditor.jsx';
 import CenteringEditor from '../components/grading/CenteringEditor.jsx';
 import EdgesReview, { EdgesCard } from '../components/grading/EdgesReview.jsx';
 import SurfaceChecklist from '../components/grading/SurfaceChecklist.jsx';
+import MarkEditor from '../components/grading/MarkEditor.jsx';
 import CardPicker from '../components/grading/CardPicker.jsx';
 import { CardView, CompareView, CardHeader, candidatesOf } from '../components/grading/CardCopies.jsx';
 import { drawCanvas, imageCanvas, useCanvasWidth } from '../components/grading/canvasTools.js';
@@ -195,7 +196,11 @@ export default function Grading() {
           combined: d.edges.combined, photos: d.edges.photos || (d.edges.combined ? 2 : 1),
           ignored: d.edges.ignored, doubtTracks: d.edges.doubtTracks,
           spots: d.edges.spots.map(({ id, track, from, to, lengthMm, depthMm, doubt, maybe, votes, photos }) => ({ id, track, from, to, lengthMm, depthMm, doubt, ...(maybe ? { maybe, votes, photos } : {}) })),
+          // the possible nicks and the user's answer (yes = "It's a nick")
+          nicks: (d.edges.nicks || []).map(n => ({ ...n, yes: (d.edges.nickYes || []).includes(n.id) })),
+          nicksUnchecked: d.edges.nicksUnchecked || [],
         } : null,
+        marks: d.marks || [],
       };
     }
     const result = {
@@ -265,11 +270,15 @@ export default function Grading() {
     const maybe = maybeSpots(scan, found.filter(sp => !sp.doubt), settings);
     const spots = [...found, ...maybe];
     const doubtTracks = doubtTracksOf(scan, settings);
+    // possible nicks: the first photo's outline and the turned photos'
+    const scans = [work.scanA, ...extras.map(x => x.scan)];
+    const nicks = findNicks(scans, settings);
     setWork(w => ({
       ...w,
       extras,
       edges: {
         scan, spots, ignored: maybe.map(sp => sp.id), doubtTracks, combined: !!scan.combined, photos: 1 + extras.length,
+        nicks, nickYes: [], nicksUnchecked: scans.length > 1 ? nicksUnchecked(scans, settings) : [],
         margin: w.margin, image: w.imageM, extras,
       },
     }));
@@ -314,12 +323,27 @@ export default function Grading() {
     return { ...w, edges: { ...w.edges, ignored } };
   });
 
+  const toggleNick = (id) => setWork(w => {
+    const yes = w.edges.nickYes || [];
+    return { ...w, edges: { ...w.edges, nickYes: yes.includes(id) ? yes.filter(x => x !== id) : [...yes, id] } };
+  });
+
+  // "Add a mark": a nick counts towards the edges, the others tick their
+  // checklist item (at least Slight).
+  const addMark = (mark) => setWork(w => {
+    const item = MARK_KINDS.find(k => k.id === mark.kind)?.item;
+    const surface = { ...(w.surface || emptySurface(settings)) };
+    if (item && (surface[item] || 'none') === 'none') surface[item] = 'slight';
+    return { ...w, marks: [...(w.marks || []), mark], surface };
+  });
+  const removeMark = (id) => setWork(w => ({ ...w, marks: (w.marks || []).filter(m => m.id !== id) }));
+
   function finishSide() {
     const measured = centering.measure({ lines: work.lines }, settings);
     const e = work.edges;
     // the turned photos' pictures are let go (only their photos stay, for "Send for testing")
     const extras = (e?.extras || []).map(({ image, scan, ...rest }) => rest);
-    const edges = e && { ...e, extras, measured: measureEdges(e.spots, e.ignored, e.doubtTracks) };
+    const edges = e && { ...e, extras, measured: measureEdges(e.spots, e.ignored, e.doubtTracks, nickCount(e, work.marks)) };
     const result = { ...work, bitmap: null, scanA: null, extras: null, measured, edges };
     const next = { ...done, [side]: result };
     setDone(next);
@@ -345,7 +369,9 @@ export default function Grading() {
         combined: data.edges.combined, spots: data.edges.spots, ignored: data.edges.ignored,
         doubtTracks: data.edges.doubtTracks, lit: data.edges.scan.lit, unread: data.edges.scan.unread,
         measured: data.edges.measured || null, glare: data.glare ?? null,
+        nicks: data.edges.nicks || [], nickYes: data.edges.nickYes || [], nicksUnchecked: data.edges.nicksUnchecked || [],
       } : null,
+      marks: data.marks || [],
       labSettings: labOverrides(),
     };
     const set = (status) => setUploads(u => u.map(x => (x.id === id ? { ...x, status } : x)));
@@ -487,13 +513,13 @@ export default function Grading() {
             Whitening on the edges and corners is marked in red and shown close up below. If a spot isn't
             whitening (dust, a glint, part of the print), tap "Not whitening".
           </p>
-          <EdgesNumbers edges={work.edges} face={side} settings={settings} />
+          <EdgesNumbers edges={work.edges} marks={work.marks} face={side} settings={settings} />
           {work.glare > settings.edges.glareWarnShare && (
             <p style={{ margin: 0, color: 'var(--warning)' }}>
               ⚠️ Glare on part of the card: whitening under it can't be seen. If it's near an edge, move the light and retake.
             </p>
           )}
-          <EdgesReview edges={work.edges} onToggle={toggleSpot} />
+          <EdgesReview edges={work.edges} onToggle={toggleSpot} onToggleNick={toggleNick} />
           <MorePhotos edges={work.edges} onMore={() => setStep('turned')} />
           <div style={rowStyle}>
             <button className={`btn ${wantsMorePhotos(work.edges) ? 'btn-ghost' : 'btn-primary'}`} onClick={toSurface}>Next: surface</button>
@@ -512,6 +538,7 @@ export default function Grading() {
             you can see; leave it on None if it looks clean. (A phone photo can't show these reliably, so this part is by eye.)
           </p>
           <SurfaceChecklist value={work.surface} onChange={surface => setWork(w => ({ ...w, surface }))} settings={settings} />
+          <MarkEditor edges={work.edges} marks={work.marks || []} onAdd={addMark} onRemove={removeMark} />
           <div style={rowStyle}>
             <button className="btn btn-primary" onClick={finishSide}>Done with the {NAMES[side]}</button>
             <button className="btn btn-ghost" onClick={() => setStep('edges')}>Back to the edges</button>
@@ -627,7 +654,7 @@ function Result({ done, settings, onRedo, onAnother, sendButton, save }) {
             </table>
             {done[s].edges && (
               <>
-                <EdgesCard edges={done[s].edges} maxWidth={260} />
+                <EdgesCard edges={done[s].edges} maxWidth={260} userMarks={done[s].marks || []} />
                 <div style={{ fontSize: '0.9rem' }}>{whiteningText(done[s].edges.measured)}</div>
                 {!done[s].edges.combined && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Edges checked from one photo.</div>}
               </>
@@ -685,8 +712,8 @@ function MorePhotos({ edges, onMore }) {
 }
 
 // The edges step's numbers for the side being checked, and what they allow.
-function EdgesNumbers({ edges, face, settings }) {
-  const m = measureEdges(edges.spots, edges.ignored, edges.doubtTracks);
+function EdgesNumbers({ edges, marks, face, settings }) {
+  const m = measureEdges(edges.spots, edges.ignored, edges.doubtTracks, nickCount(edges, marks));
   const c = edgesCap(face === 'front' ? m : null, face === 'back' ? m : null, settings);
   return (
     <div style={{ display: 'grid', gap: 2 }}>
@@ -827,6 +854,13 @@ function SavePanel({ cardData, slot, savedCopy, onSave, onPickCard, onSeeCard })
 
 // The sides of a finished check, summed up the way estimates and saved
 // copies need them (grading/estimate.js).
+// Nicks on a side: the possible nicks the user said yes to, plus nicks they
+// marked themselves.
+function nickCount(edges, marks) {
+  const ids = new Set((edges?.nicks || []).map(n => n.id));
+  return (edges?.nickYes || []).filter(id => ids.has(id)).length + (marks || []).filter(m => m.kind === 'nick').length;
+}
+
 function sidesOf(done) {
   const out = {};
   for (const s of ['front', 'back']) {

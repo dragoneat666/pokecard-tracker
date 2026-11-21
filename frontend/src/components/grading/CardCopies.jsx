@@ -126,7 +126,10 @@ function CopyRow({ copy, n, settings, onDelete, onStatus, onLabel }) {
 function CopyDetails({ copy, est, settings }) {
   const [marks, setMarks] = useState(true);
   const sides = copy.result?.sides || {};
-  const anyMarks = ['front', 'back'].some(f => copy.result?.details?.[f]?.edges?.spots?.some(sp => !sp.doubt));
+  const anyMarks = ['front', 'back'].some(f => {
+    const d = copy.result?.details?.[f];
+    return d?.edges?.spots?.some(sp => !sp.doubt) || d?.edges?.nicks?.some(n => n.yes) || d?.marks?.length;
+  });
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
       {est && (
@@ -149,7 +152,7 @@ function CopyDetails({ copy, est, settings }) {
       {anyMarks && (
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.9rem' }}>
           <input type="checkbox" checked={marks} onChange={e => setMarks(e.target.checked)} />
-          Show the whitening found (red marks)
+          Show what was found (whitening in red, nicks in blue, your marks in yellow)
         </label>
       )}
       <div style={{ display: 'grid', gap: 'var(--space-3)', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
@@ -190,6 +193,7 @@ function SavedSide({ copy, face, marks, settings }) {
     edges = {
       image: img, margin, scan: { W, H, ppm, R: radiusMm * ppm },
       spots: e?.spots || [], ignored: e?.ignored || [], doubtTracks: e?.doubtTracks || [],
+      nicks: e?.nicks || [], nickYes: (e?.nicks || []).filter(n => n.yes).map(n => n.id),
     };
   }
   const c = side.centering;
@@ -198,7 +202,7 @@ function SavedSide({ copy, face, marks, settings }) {
     <div style={{ display: 'grid', gap: 6 }}>
       <b>{face === 'front' ? 'Front' : 'Back'}</b>
       {edges
-        ? <EdgesCard edges={edges} maxWidth={300} marks={marks && !!detail.edges} />
+        ? <EdgesCard edges={edges} maxWidth={300} marks={marks && !!detail.edges} userMarks={marks ? detail.marks || [] : []} />
         : <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>{failed ? "The picture didn't load." : src ? 'Loading the picture…' : 'No picture saved.'}</div>}
       {c && (
         <table style={{ fontSize: '0.85rem' }}>

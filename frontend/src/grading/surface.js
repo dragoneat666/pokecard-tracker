@@ -13,6 +13,19 @@ export const LEVELS = [
   { id: 'obvious', label: 'Obvious' },
 ];
 
+// Marks the user puts on the card's picture ("Add a mark"): where something
+// is, for the record (and as labelled examples for a trained checker later).
+// A nick counts towards the edges; the others tick their checklist item
+// (at least Slight) when added.
+export const MARK_KINDS = [
+  { id: 'nick', label: 'Nick in the edge', letter: 'N' },
+  { id: 'dents', label: 'Dent or ding', letter: 'D', item: 'dents' },
+  { id: 'scratches', label: 'Scratch or scuff', letter: 'S', item: 'scratches' },
+  { id: 'creases', label: 'Crease or bend', letter: 'C', item: 'creases' },
+  { id: 'marks', label: 'Stain or mark', letter: 'M', item: 'marks' },
+  { id: 'other', label: 'Something else', letter: '?' },
+];
+
 // A side with nothing ticked: { scratches: 'none', ... }.
 export function emptySurface(settings) {
   return Object.fromEntries(settings.surface.items.map(it => [it.id, 'none']));

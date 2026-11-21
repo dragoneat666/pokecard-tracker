@@ -162,6 +162,17 @@ export const GRADING_DEFAULTS = {
     // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
     // turned away: "take it again".
     minMatch: 0.42,
+    // Possible nicks (edges.findNicks): the outline dipping in at least minPx
+    // (0.05 mm each) below its median over windowMm either way, along
+    // minRunMm-maxRunMm of a straight edge, in the same place in 2 or more
+    // photos (the others need only a faint dip: weakPx along weakRunMm), with
+    // at least minPale px of whitening in it in one photo. A photo that
+    // guessed the edge on more than maxGuess of a side doesn't vote there.
+    // Listed for the user to check, not counted until confirmed.
+    nicks: { minPx: 2, windowMm: 2, minRunMm: 0.4, maxRunMm: 3, weakPx: 1, weakRunMm: 0.15, minPale: 1, maxGuess: 0.05 },
+    // Nicks confirmed (or added by hand) per side, the most each grade
+    // allows. A rough guide: graders allow no nicks on a 10.
+    nickGrades: [{ grade: 10, nicks: 0 }, { grade: 9, nicks: 1 }, { grade: 8, nicks: 3 }, { grade: 7, nicks: 6 }],
     // With one photo, an edge with "whitening" along more than this share of
     // its length is probably glinting in the light: it and its corners are
     // "in doubt" and not counted. (On phone photos of pack-fresh backs,

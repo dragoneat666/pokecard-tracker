@@ -5,30 +5,38 @@
 // close-up of each spot from every photo so it can be judged by eye. A spot
 // that isn't whitening (dirt, a glint, a printed mark) can be marked "Not
 // whitening" and stops counting. Spots seen in only some of the photos
-// ("maybe") start out not counted, with "Count it".
+// ("maybe") start out not counted, with "Count it". Possible nicks (the
+// edge dipping in, in the same place in 2 or more photos) are listed below
+// in blue, not counted until the user taps "It's a nick".
 
 import { useEffect, useRef } from 'react';
 import { trackGeometry, TRACK_NAMES, TRACKS } from '../../grading/edges.js';
+import { MARK_KINDS } from '../../grading/surface.js';
 import { drawCanvas, imageCanvas, useCanvasWidth } from './canvasTools.js';
 
 const RED = 'rgba(255, 40, 40, 0.95)';
 const GREY = 'rgba(150, 150, 150, 0.8)';
 const AMBER = 'rgba(255, 180, 0, 0.9)';
+const BLUE = 'rgba(40, 170, 255, 0.95)';
+const YELLOW = 'rgba(255, 220, 0, 0.95)';
 
 // Spots in the order they go round the card.
 export function orderedSpots(spots) {
   return [...spots].sort((a, b) => TRACKS.indexOf(a.track) - TRACKS.indexOf(b.track) || a.from - b.from);
 }
 
-export default function EdgesReview({ edges, onToggle }) {
+export default function EdgesReview({ edges, onToggle, onToggleNick }) {
   const { scan, spots, ignored, doubtTracks, combined, margin, image, imageB } = edges;
+  const nicks = orderedSpots(edges.nicks || []);
+  const nickYes = new Set(edges.nickYes || []);
+  const uncheckedNicks = edges.nicksUnchecked || [];
   // the turned photos (the tuning page passes one as imageB)
   const extras = edges.extras || (imageB ? [{ image: imageB, label: 'sideways' }] : []);
   const list = orderedSpots(spots).filter(sp => !sp.doubt);
   const skip = new Set(ignored);
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
-      <EdgesCard edges={edges} maxWidth={360} />
+      <EdgesCard edges={edges} maxWidth={360} suggestions />
       {doubtTracks.length > 0 && (
         <p style={{ margin: 0, color: 'var(--warning)' }}>
           ⚠️ The {namesOf(doubtTracks)} may only be glinting in the light (marked in amber), so
@@ -60,20 +68,75 @@ export default function EdgesReview({ edges, onToggle }) {
             ))}
           </div>
         )}
+      {onToggleNick && (
+        <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+          <b>Nicks</b>
+          {!combined
+            ? <p style={{ margin: 0, color: 'var(--text-muted)' }}>Looking for nicks needs a sideways photo too.</p>
+            : nicks.length === 0
+              ? <p style={{ margin: 0 }}>No possible nicks found{uncheckedNicks.length && uncheckedNicks.length < 4 ? ' on the other edges' : ''}.</p>
+              : (
+                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                  Places where the edge seems to dip in (marked in blue). These are only suggestions: look at the card,
+                  and tap "It's a nick" for any that really are. Only those count.
+                </p>
+              )}
+          {combined && uncheckedNicks.length > 0 && (
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Nicks couldn't be looked for on the {listText(uncheckedNicks)} edge{uncheckedNicks.length > 1 ? 's' : ''}: the card's
+              {' '}edge didn't stand out from the background there. Use "Add a mark" on the next step for any you can see.
+            </p>
+          )}
+          {nicks.map((nk, n) => (
+            <div key={nk.id} style={{ display: 'grid', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <b style={{ color: BLUE }}>N{n + 1}.</b>
+                <span>{cap(TRACK_NAMES[nk.track])}: {nk.lengthMm} mm along, about {nk.depthMm} mm in</span>
+                <span style={{ color: 'var(--text-muted)' }}>seen in {nk.votes} of {nk.photos} photos</span>
+                {nickYes.has(nk.id) && <span style={{ color: 'var(--warning)' }}>counted as a nick</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+                <SpotCrop image={image} margin={margin} scan={scan} spot={nk} label="photo 1" />
+                {extras.map((x, i) => x.image && (
+                  <SpotCrop key={i} image={x.image} margin={margin} scan={scan} spot={nk} label={`photo ${i + 2} (${x.label})`} />
+                ))}
+                <button className={`btn btn-sm ${nickYes.has(nk.id) ? 'btn-ghost' : 'btn-primary'}`} onClick={() => onToggleNick(nk.id)}>
+                  {nickYes.has(nk.id) ? 'Not a nick' : "It's a nick"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // The card with the spots marked round it. Also used small on the result
 // page, and for saved copies, where image is the saved picture (an <img>)
-// and marks can be turned off.
-export function EdgesCard({ edges, maxWidth = 360, marks = true }) {
+// and marks can be turned off. Nicks: confirmed ones in solid blue, the
+// suggestions (only with `suggestions`) dashed. userMarks: the user's own
+// marks ({ kind, x, y } in mm from the card's top-left corner) as lettered
+// yellow rings. onTap(x, y): a tap on the card, in mm.
+export function EdgesCard({ edges, maxWidth = 360, marks = true, suggestions = false, userMarks = [], onTap = null }) {
   const { scan, spots, ignored, doubtTracks, margin, image } = edges;
+  const nicks = edges.nicks || [];
+  const nickYes = edges.nickYes || [];
   const [wrapRef, cssW] = useCanvasWidth();
   const ref = useRef(null);
+  const scaleRef = useRef(1);
+  const tap = (e) => {
+    if (!onTap) return;
+    const box = ref.current.getBoundingClientRect();
+    const s = scaleRef.current;
+    const x = ((e.clientX - box.left) / s - margin) / scan.ppm, y = ((e.clientY - box.top) / s - margin) / scan.ppm;
+    if (x < -1 || y < -1 || x > scan.W / scan.ppm + 1 || y > scan.H / scan.ppm + 1) return;
+    onTap(Math.round(x * 10) / 10, Math.round(y * 10) / 10);
+  };
   useEffect(() => {
     if (!cssW || !image) return;
     const w = Math.min(cssW, maxWidth), s = w / image.width, h = Math.round(image.height * s);
+    scaleRef.current = s;
     const src = image.data ? imageCanvas(image) : image;
     const geo = trackGeometry(scan.W, scan.H, scan.R);
     const skip = new Set(ignored);
@@ -115,9 +178,52 @@ export function EdgesCard({ edges, maxWidth = 360, marks = true }) {
         ctx.fillText(String(n + 1), lx, ly + 0.5);
         ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
       });
+      orderedSpots(nicks).forEach((nk, n) => {
+        const yes = nickYes.includes(nk.id);
+        if (!yes && !suggestions) return;
+        ctx.strokeStyle = BLUE; ctx.lineWidth = 4;
+        ctx.setLineDash(yes ? [] : [3, 3]);
+        const grow = Math.max(0, Math.ceil((8 / s - (nk.to - nk.from)) / 2));
+        stroke(ctx, nk.track, nk.from - grow, nk.to + grow);
+        ctx.setLineDash([]);
+        const p = geo.point(nk.track, Math.round((nk.from + nk.to) / 2));
+        const inset = Math.max(3 * scan.ppm, 12 / s);
+        label(ctx, (p.x + p.nx * inset + margin) * s, (p.y + p.ny * inset + margin) * s, `N${n + 1}`, BLUE, yes);
+      });
+      for (const m of userMarks) {
+        const kind = MARK_KINDS.find(k => k.id === m.kind);
+        label(ctx, (m.x * scan.ppm + margin) * s, (m.y * scan.ppm + margin) * s, kind?.letter || '?', YELLOW, false, true);
+      }
     });
-  }, [image, scan, spots, ignored, doubtTracks, margin, cssW, maxWidth, marks]);
-  return <div ref={wrapRef}><canvas ref={ref} style={{ display: 'block', margin: '0 auto', borderRadius: 6 }} /></div>;
+  }, [image, scan, spots, ignored, doubtTracks, margin, cssW, maxWidth, marks, nicks, nickYes, suggestions, userMarks]);
+  return (
+    <div ref={wrapRef}>
+      <canvas ref={ref} onClick={tap}
+        style={{ display: 'block', margin: '0 auto', borderRadius: 6, cursor: onTap ? 'crosshair' : undefined, touchAction: 'manipulation' }} />
+    </div>
+  );
+}
+
+// A small label: a dot with text (filled when confirmed), or for the user's
+// marks a ring round the spot itself with the letter beside it.
+function label(ctx, x, y, text, colour, filled, ring = false) {
+  ctx.font = 'bold 11px system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (ring) {
+    ctx.strokeStyle = colour; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.beginPath(); ctx.arc(x + 12, y - 12, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = colour;
+    ctx.fillText(text, x + 12, y - 11.5);
+  } else {
+    ctx.fillStyle = filled ? colour : 'rgba(0, 0, 0, 0.7)';
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = colour; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = filled ? '#fff' : colour;
+    ctx.fillText(text, x, y + 0.5);
+  }
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
 }
 
 // A close-up of one spot: 3.5 mm square round its middle, 4 times bigger.

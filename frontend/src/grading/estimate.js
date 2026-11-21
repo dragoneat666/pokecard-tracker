@@ -42,10 +42,12 @@ export function estimateOf(sides, settings) {
 }
 
 // "Whitening: 3.1 mm in all, up to 0.25 mm deep (2 corners, 1 edge)."
+// Plus " 1 nick." when there are nicks.
 export function whiteningText(m) {
-  if (!m || !m.counted) return 'No whitening counted.';
+  const nicks = m?.nicks ? ` ${m.nicks} nick${m.nicks > 1 ? 's' : ''}.` : '';
+  if (!m || !m.counted) return `No whitening counted.${nicks}`;
   const where = [m.corners && `${m.corners} corner${m.corners > 1 ? 's' : ''}`, m.edges && `${m.edges} edge${m.edges > 1 ? 's' : ''}`].filter(Boolean).join(', ');
-  return `Whitening: ${m.lengthMm} mm in all, up to ${m.depthMm} mm deep (${where}).`;
+  return `Whitening: ${m.lengthMm} mm in all, up to ${m.depthMm} mm deep (${where}).${nicks}`;
 }
 
 // "8", "5 or lower", with "(could be 7–8)" when it's a close call.
@@ -87,6 +89,12 @@ export function compareCopies(a, b, settings) {
       a: wa ? `${wa.lengthMm} mm` : 'not checked', b: wb ? `${wb.lengthMm} mm` : 'not checked',
       better: wa && wb ? pick(wa.lengthMm, wb.lengthMm, share(wa.lengthMm, wb.lengthMm, minMm)) : null,
     });
+  }
+  const edgesChecked = (x) => !!(x?.front?.whitening || x?.back?.whitening);
+  const na = (a?.front?.whitening?.nicks || 0) + (a?.back?.whitening?.nicks || 0);
+  const nb = (b?.front?.whitening?.nicks || 0) + (b?.back?.whitening?.nicks || 0);
+  if ((na || nb) && edgesChecked(a) && edgesChecked(b)) {
+    reasons.push({ what: 'Nicks', weight: 2, a: String(na), b: String(nb), better: pick(na, nb, 1) });
   }
   const sa = surfaceCap(a?.front?.surface, a?.back?.surface, settings);
   const sb = surfaceCap(b?.front?.surface, b?.back?.surface, settings);
