@@ -155,6 +155,36 @@ export async function straighten(bitmap, quad, { margin = 0 } = {}) {
   return image;
 }
 
+// The card's 4 edges at the photo's own detail, for training a checker on
+// another computer (kept on the server only until it's fetched). One JPEG:
+// the strips top, right, bottom, left stacked in that order, each turned so
+// the outside is at the top and running clockwise round the card from left
+// to right, from outMm outside the edge to inMm inside it and outMm past both
+// corners; the shorter top/bottom strips are padded on the right with grey.
+// The photo's pixels are read before this first waits, so the bitmap can be
+// closed as soon as it's called. Answers { blob, ppm, outPx, inPx, width,
+// height, rows: [{ edge, y, length }] } (length = the strip's width in px).
+export async function edgeStrips(bitmap, quad, s) {
+  const src = pixelsOf(bitmap, WARP_SIDE);
+  const ppm = Math.max(s.minPpm, Math.min(s.maxPpm, Math.round(detailOf(quad) * Math.min(src.sx, src.sy))));
+  const outPx = Math.round(s.outMm * ppm), inPx = Math.round(s.inMm * ppm);
+  const { strips } = await call('strips', {
+    image: src.data, quad: toCopy(quad, src), ppm, outPx, inPx,
+  }, [src.data.data.buffer]);
+  const width = Math.max(...strips.map(st => st.width));
+  const rowH = outPx + inPx, height = rowH * strips.length;
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, width, height);
+  const rows = strips.map((st, i) => {
+    ctx.putImageData(st, 0, i * rowH);
+    return { edge: ['top', 'right', 'bottom', 'left'][i], y: i * rowH, length: st.width };
+  });
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: s.quality });
+  return { blob, ppm, outPx, inPx, width, height, rows };
+}
+
 // Half a turn, for a card photographed upside down: the same corners, starting
 // from the opposite one.
 export function turnQuad(quad) {

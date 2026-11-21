@@ -107,6 +107,11 @@ export const GRADING_DEFAULTS = {
   edges: {
     // Photo kept round the straightened card, so the background shows.
     marginMm: 1.2,
+    // Edge strips for training a checker on another computer (vision.js
+    // edgeStrips): every photo's 4 edges at the photo's own detail (px per
+    // mm, kept between these), from outMm outside to inMm inside. The
+    // server keeps them only until they're fetched.
+    strips: { minPpm: 20, maxPpm: 40, outMm: 2, inMm: 2.5, quality: 0.9 },
     // Each line across the edge starts this far outside the card and reaches
     // this far in.
     outsideMm: 1,

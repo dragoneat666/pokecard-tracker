@@ -15,6 +15,11 @@
 //   { type: 'warp', image: ImageData, quad, width, height, margin } → { image: ImageData }
 //     (margin: pixels of the photo kept round the card, for the edges check)
 //        Straightens the card to width x height.
+//   { type: 'strips', image: ImageData, quad, ppm, outPx, inPx } → { strips: [ImageData x 4] }
+//        The card's 4 edges (top, right, bottom, left) as strips at ppm px per
+//        mm, each from outPx outside the edge to inPx inside it and running
+//        outPx past both corners, turned so the outside is at the top and the
+//        strip runs clockwise round the card from left to right.
 // quad = 4 corners [[x,y] ...] in the given image's pixels: top-left, top-right,
 // bottom-right, bottom-left, card upright (short sides at top and bottom).
 //
@@ -58,6 +63,10 @@ self.onmessage = async (e) => {
     else if (type === 'warp') {
       const image = warp(e.data.image, e.data.quad, e.data.width, e.data.height, e.data.margin || 0);
       self.postMessage({ id, result: { image } }, [image.data.buffer]);
+      return;
+    } else if (type === 'strips') {
+      const strips = edgeStrips(e.data.image, e.data.quad, e.data.ppm, e.data.outPx, e.data.inPx);
+      self.postMessage({ id, result: { strips } }, strips.map(s => s.data.buffer));
       return;
     } else throw new Error('Unknown message ' + type);
     self.postMessage({ id, result });
@@ -535,6 +544,36 @@ function warp(imageData, quad, outW, outH, margin = 0) {
   cv.warpPerspective(src, dst, M, new cv.Size(outW + 2 * m, outH + 2 * m), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
   const out = new ImageData(new Uint8ClampedArray(dst.data), outW + 2 * m, outH + 2 * m);
   [src, from, to, M, dst].forEach(m => m.delete());
+  return out;
+}
+
+// The card's edges as strips (see 'strips' above). Card pixel centres run
+// 0..W-1 with the card's outer edges at -0.5 and W - 0.5, as in warp(). Each
+// strip is its own perspective warp straight from the photo, so nothing is
+// resampled twice.
+function edgeStrips(imageData, quad, ppm, outPx, inPx) {
+  const src = cv.matFromImageData(imageData);
+  const W = Math.round(63 * ppm), H = Math.round(88 * ppm), O = outPx;
+  // card (x, y) -> strip (u, v) for each edge
+  const maps = [
+    { len: W, at: (x, y) => [x + O, y + O] },                       // top
+    { len: H, at: (x, y) => [y + O, (W - 1) + O - x] },             // right
+    { len: W, at: (x, y) => [(W - 1) + O - x, (H - 1) + O - y] },   // bottom
+    { len: H, at: (x, y) => [(H - 1) + O - y, x + O] },             // left
+  ];
+  const corners = [[-0.5, -0.5], [W - 0.5, -0.5], [W - 0.5, H - 0.5], [-0.5, H - 0.5]];
+  const from = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flat());
+  const out = maps.map(({ len, at }) => {
+    const to = cv.matFromArray(4, 1, cv.CV_32FC2, corners.flatMap(([x, y]) => at(x, y)));
+    const M = cv.getPerspectiveTransform(from, to);
+    const dst = new cv.Mat();
+    const w = len + 2 * O, h = O + inPx;
+    cv.warpPerspective(src, dst, M, new cv.Size(w, h), cv.INTER_LINEAR, cv.BORDER_REPLICATE);
+    const img = new ImageData(new Uint8ClampedArray(dst.data), w, h);
+    [to, M, dst].forEach(m => m.delete());
+    return img;
+  });
+  [src, from].forEach(m => m.delete());
   return out;
 }
 

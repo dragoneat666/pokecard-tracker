@@ -11,7 +11,8 @@
 //                                         estimateLow, estimateHigh, result) and
 //                                         the pictures "front", "frontThumb",
 //                                         "back", "backThumb" (JPEG, any missing
-//                                         side left out)
+//                                         side left out), and each photo's edge
+//                                         strips strip-<side>-<photo 1-4>
 //   PATCH  /api/grading/copies/:id        { label } and/or { status }
 //   POST   /api/grading/copies/:id/keep   keep this copy: the card's other copies
 //                                         in the same slot (not already "sell")
@@ -24,7 +25,11 @@
 //                                         its picture addresses, oldest first.
 //                                         For training a checker on another
 //                                         computer; since = an ISO time, only
-//                                         copies changed after it
+//                                         copies changed after it. Each copy's
+//                                         edge strips still on the server are
+//                                         listed in strips {"front-1": path}
+//   GET    /api/grading/strips/<file>     an edge strip picture
+//   DELETE /api/grading/strips/<file>     forget an edge strip (once fetched)
 //
 // What a copy is and what its status means: db/migrations/0.7.36-grading-copies.sql.
 // Nothing here ever changes a card's owned count: the user unticks the second
@@ -33,6 +38,13 @@
 // The pictures are files in the grading volume (/app/grading), named
 // <copy id>-<side>-<random>.jpg (thumbnails end in -t.jpg), all in one folder
 // so the nightly backup can copy them as plain files.
+//
+// Edge strips (every photo's 4 edges at full detail, for training a checker
+// on another computer; how they're laid out: frontend grading/vision.js
+// edgeStrips, their sizes are in result.details[side].strips) are kept in
+// the strips/ folder inside it, named <copy id>-<side>-<photo>-<random>.jpg,
+// only until the other computer has fetched them and deletes them. The
+// nightly backup skips that folder (it only copies the top level).
 
 import { Router } from 'express';
 import express from 'express';
@@ -46,13 +58,16 @@ const DIR = process.env.GRADING_DIR || '/app/grading';
 const MAX_PICTURE = 8 * 1024 * 1024;      // a straightened card is ~0.5 MB
 const MAX_RESULT = 512 * 1024;            // the measurements JSON
 const PICTURES = ['front', 'frontThumb', 'back', 'backThumb'];
+const STRIP_DIR = path.join(DIR, 'strips');
+const STRIPS = ['front', 'back'].flatMap(side => [1, 2, 3, 4].map(n => `strip-${side}-${n}`));
+const STRIP_FILE = /^\d+-(front|back)-[1-4]-[0-9a-f]+\.jpg$/;
 const SLOTS = ['regular', 'reverse'];
 const STATUSES = ['checked', 'keep', 'sell'];
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { files: PICTURES.length, fileSize: MAX_PICTURE, fieldSize: MAX_RESULT },
-}).fields(PICTURES.map(name => ({ name, maxCount: 1 })));
+  limits: { files: PICTURES.length + STRIPS.length, fileSize: MAX_PICTURE, fieldSize: MAX_RESULT },
+}).fields([...PICTURES, ...STRIPS].map(name => ({ name, maxCount: 1 })));
 
 const isJpeg = (buf) => buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
 
@@ -85,11 +100,45 @@ function removeFiles(images) {
   }
 }
 
+// The edge strips still on the server: { copyId: { "front-1": file } }.
+function stripFiles() {
+  const out = {};
+  let names = [];
+  try { names = fs.readdirSync(STRIP_DIR); } catch { return out; }
+  for (const name of names) {
+    if (!STRIP_FILE.test(name)) continue;
+    const [id, side, n] = name.split('-');
+    (out[id] ||= {})[`${side}-${n}`] = name;
+  }
+  return out;
+}
+
+function removeStrips(copyId) {
+  for (const file of Object.values(stripFiles()[copyId] || {})) {
+    try { fs.unlinkSync(path.join(STRIP_DIR, file)); } catch { /* already gone */ }
+  }
+}
+
 const router = Router();
 
 router.use('/images',
   express.static(DIR, { maxAge: '30d', immutable: true, index: false }),
   (_req, res) => res.status(404).json({ error: 'Picture not found' }));
+
+router.use('/strips',
+  express.static(STRIP_DIR, { index: false }),
+  (req, res, next) => (req.method === 'GET' ? res.status(404).json({ error: 'Strip not found' }) : next()));
+
+router.delete('/strips/:file', (req, res, next) => {
+  if (!STRIP_FILE.test(req.params.file)) return res.status(400).json({ error: 'Not a strip' });
+  try {
+    fs.unlinkSync(path.join(STRIP_DIR, req.params.file));
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Strip not found' });
+    return next(err);
+  }
+  res.status(204).end();
+});
 
 router.get('/cards/search', async (req, res, next) => {
   try {
@@ -169,11 +218,13 @@ router.get('/export', async (req, res, next) => {
       JOIN sets s ON s.id = c.set_id
       ${where}
       ORDER BY g.updated_at, g.id`, params);
+    const strips = stripFiles();
     res.json({
       exportedAt: new Date().toISOString(),
       copies: rows.map(({ images, ...r }) => ({
         ...r,
         pictures: Object.fromEntries(Object.entries(images || {}).map(([key, file]) => [key, `/api/grading/images/${file}`])),
+        strips: Object.fromEntries(Object.entries(strips[r.id] || {}).map(([key, file]) => [key, `/api/grading/strips/${file}`])),
       })),
     });
   } catch (err) { next(err); }
@@ -190,7 +241,7 @@ router.post('/copies', (req, res, next) => {
     const slot = SLOTS.includes(meta.slot) ? meta.slot : 'regular';
     const grade = (v) => (Number.isInteger(v) && v >= 1 && v <= 10 ? v : null);
     const files = req.files || {};
-    for (const name of PICTURES) {
+    for (const name of [...PICTURES, ...STRIPS]) {
       if (files[name] && !isJpeg(files[name][0].buffer)) return res.status(400).json({ error: `The ${name} picture isn't a JPEG` });
     }
     if (!meta.result || typeof meta.result !== 'object') return res.status(400).json({ error: 'No measurements were sent' });
@@ -215,11 +266,19 @@ router.post('/copies', (req, res, next) => {
         fs.writeFileSync(path.join(DIR, file), files[name][0].buffer);
         images[name] = file;
       }
+      // the edge strips: kept apart, not part of the copy's pictures
+      if (STRIPS.some(name => files[name])) fs.mkdirSync(STRIP_DIR, { recursive: true });
+      for (const name of STRIPS) {
+        if (!files[name]) continue;
+        const [, side, n] = name.split('-');
+        fs.writeFileSync(path.join(STRIP_DIR, `${copyId}-${side}-${n}-${tag}.jpg`), files[name][0].buffer);
+      }
       const saved = await query('UPDATE grading_copies SET images = $2 WHERE id = $1 RETURNING *', [copyId, images]);
       res.status(201).json({ copy: copyOut(saved.rows[0]) });
     } catch (e) {
       // don't leave half a copy behind
       removeFiles(images);
+      if (copyId) removeStrips(copyId);
       if (copyId) await query('DELETE FROM grading_copies WHERE id = $1', [copyId]).catch(() => {});
       next(e);
     }
@@ -269,6 +328,7 @@ router.delete('/copies/:id', async (req, res, next) => {
     const { rows } = await query('DELETE FROM grading_copies WHERE id = $1 RETURNING images', [parseInt(req.params.id)]);
     if (!rows.length) return res.status(404).json({ error: 'Copy not found' });
     removeFiles(rows[0].images);
+    removeStrips(parseInt(req.params.id));
     res.status(204).end();
   } catch (err) { next(err); }
 });

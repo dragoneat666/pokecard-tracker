@@ -37,7 +37,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useLeaveGuard } from '../leaveGuard.js';
 import { mergeSettings, labOverrides } from '../grading/config.js';
-import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf } from '../grading/vision.js';
+import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf, edgeStrips } from '../grading/vision.js';
 import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
@@ -188,6 +188,15 @@ export default function Grading() {
       if (!d) continue;
       pictures[s] = await jpegOf(d.edges?.image || d.image, 0.85);
       pictures[`${s}Thumb`] = await jpegOf(d.image, 0.8, 300);
+      // every photo's edge strips (kept on the server until they're fetched)
+      const strips = d.edges ? await Promise.all([d.stripA, ...(d.edges.extras || []).map(x => x.strip)]) : [];
+      const stripInfo = [];
+      strips.forEach((st, i) => {
+        if (!st) return;
+        pictures[`strip-${s}-${i + 1}`] = st.blob;
+        const { blob, ...info } = st;
+        stripInfo.push({ photo: i + 1, turn: i ? d.edges.extras[i - 1].label : null, ...info, outMm: settings.edges.strips.outMm, inMm: settings.edges.strips.inMm });
+      });
       details[s] = {
         lines: d.lines, foundLines: d.foundLines, bendMm: d.bendMm,
         detailPxPerMm: Math.round(detailOf(d.quad) * 10) / 10,
@@ -201,6 +210,7 @@ export default function Grading() {
           nicksUnchecked: d.edges.nicksUnchecked || [],
         } : null,
         marks: d.marks || [],
+        strips: stripInfo,
       };
     }
     const result = {
@@ -259,7 +269,8 @@ export default function Grading() {
     const margin = Math.round(settings.edges.marginMm * settings.image.pxPerMm);
     const imageM = await straighten(work.bitmap, work.quad, { margin });
     const scanA = scanEdges(imageM, margin, settings);
-    setWork(w => ({ ...w, imageM, scanA, margin, extras: [], glare: glareShare(imageM, margin) }));
+    const stripA = startStrips(work.bitmap, work.quad);
+    setWork(w => ({ ...w, imageM, scanA, margin, extras: [], glare: glareShare(imageM, margin), stripA }));
     setStep('turned');
   });
 
@@ -296,7 +307,8 @@ export default function Grading() {
       }
       let image = await straighten(bitmap, found.quad, { margin: work.margin });
       // straightened upright, the card may have come out upside down
-      if (sameWayUp(work.imageM, image, work.margin) < 0) image = turnImage(image);
+      let flipped = false;
+      if (sameWayUp(work.imageM, image, work.margin) < 0) { image = turnImage(image); flipped = true; }
       // an out-of-focus photo, or one whose outline was found wrong, would
       // hide whitening that's really there
       if (matchScore(work.imageM, image, work.margin) < settings.edges.minMatch) {
@@ -304,14 +316,19 @@ export default function Grading() {
       }
       const scan = scanEdges(image, work.margin, settings);
       const n = (work.extras?.length || 0) + 2;
+      const strip = startStrips(bitmap, flipped ? turnQuad(found.quad) : found.quad);
       const extras = [...(work.extras || []), {
-        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad,
+        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad, strip,
       }];
       showEdges(combineScans([work.scanA, ...extras.map(x => x.scan)], settings), extras);
     } finally {
       bitmap.close?.();
     }
   });
+
+  // A photo's edge strips (vision.js edgeStrips), made in the background and
+  // only waited for when the copy is saved. A failure just means no strips.
+  const startStrips = (bitmap, quad) => edgeStrips(bitmap, quad, settings.edges.strips).catch(() => null);
 
   const toSurface = () => {
     setWork(w => ({ ...w, surface: w.surface || emptySurface(settings) }));
@@ -576,7 +593,7 @@ function Home({ onStart, onPick }) {
         <h2 style={{ fontSize: '1rem', margin: '0 0 var(--space-2)' }}>For a good photo</h2>
         <ul style={{ margin: 0, paddingLeft: '1.2em', display: 'grid', gap: 4 }}>
           <li>Take the card out of its sleeve or top loader (the plastic adds glare and hides the edges).</li>
-          <li>Lay it on a plain dark surface, like a black mouse mat or cloth.</li>
+          <li>Lay it on a plain, matte surface that stands out from the card's border: dark (a black mouse mat or cloth) for yellow, silver or white borders, lighter (grey card or a coloured cutting mat) for black borders. Where the border and the surface look alike, the edges can't be checked.</li>
           <li>Even light from the side, no flash. Move the light if there's glare on the card.</li>
           <li>Hold the phone flat, straight above the card, so the card fills most of the picture. Too close and the camera can't focus: if it says "Blurry", move back a little.</li>
           <li>Keep the card in the middle of the picture (the dashed outline). A gently curled card is fine for centering there; a badly bent one should be flattened first.</li>
