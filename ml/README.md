@@ -44,8 +44,8 @@ Each script has `--help`. `fetch.py --dry-run` only lists what it would do.
 | `fetch.py` | `GET /api/grading/export?since=` → `data\copies\<id>.json` (latest state of each copy), `data\exports\<time>.json` (raw snapshots), `data\pictures\` (skips files already there). Remembers the newest `updated_at` in `data\state.json`; `--all` starts over. Then downloads, checks and **deletes on the server** every edge strip still there (see below); `--keep-strips` skips the delete. |
 | `test_fetch.py` | Tests the strip check and the download → check → delete order against a fake backend on localhost. |
 | `crops.py` | Cuts the labelled training crops (see **Training crops** below): `data\crops\<label>\*.png`, `data\crops\index.csv` (one row per crop) and `data\crops\marks.csv` (one row per user mark). Prints windows per label, where each mark snapped to, and geometry warnings. |
-| `strips.py` | Reads the strips in mm (`SideStrips.sample/crop`) and snaps user marks to the fleck or dip they point at (`snap_mark`). |
-| `test_strips.py` | Tests the snapping (a fleck in both photos, a glint in one, a clean edge, out of reach, mixed px/mm), `mark_edge`, and crop orientation, on synthetic strips. |
+| `strips.py` | Reads the strips in mm (`SideStrips.sample/crop`), judges each photo round a mark (`photo_quality`: blurred, or edge off photo 1's) and snaps user marks to the fleck or dip they point at (`snap_mark`). |
+| `test_strips.py` | Tests the snapping (a fleck in both photos, a glint in one, a clean edge, out of reach, mixed px/mm, a blurred or misplaced photo left out, corner marks), `mark_edge`, `mark_corner`, and crop orientation, on synthetic strips. |
 | `sheet.py` | `runs\sheets\sheet_<label>.png` grids (the photos of one window sit side by side), and `focus_*.png` strips of one edge with a step ruler (for every hand label, plus `--focus copy:side:track:from:to`). `--strips copy:side [--edge top] [--mm 30:40] [--strip-ppm 40]` instead shows every photo's strips of one side, one under the other per edge, at the same px/mm so they line up. A fleck that shows in every photo is real; a bright line that shows in only some of them is a glint. The bars under photo 1 show what the app found on the saved picture. A yellow arrow above every photo marks each user mark's tap, and a green bar under every photo shows where it snapped to. |
 | `common.py` | Settings, paths, `TrackGeometry` (a port of `trackGeometry()` from `frontend/src/grading/edges.js`), the strip helpers (`strip_layouts`, `strip_u`, `step_to_along_mm`), and `mark_edge`. |
 
@@ -109,17 +109,37 @@ the card's top-left) go to the nearest edge (top: x; right: y; bottom:
   z-score with a floor in real units (3 brightness levels, 0.015 mm): a pale
   fleck in the band from the edge to 0.6 mm inside, and an inward dip of the
   card's outline.
-- Each photo's score is spread ±0.3 mm (the photos don't line up exactly),
-  then combined so it has to show in **every photo** (3 of 4 with 4 photos).
-  A glint in one photo doesn't count.
-- The strongest combined position scoring at least 8 is the snap. The label
-  then covers that fleck's stretch (where the photos' summed score stays
-  above half its peak). Otherwise the mark stays unsnapped and covers the
-  tap ± 0.75 mm (`--mark-mm`).
-- Calibration (copies 12–15): copy 12's marked fleck scores 13.7 and snaps
-  from 47.6 to 48.3 mm (stretch 48.05–48.6). Random taps on the same strips
-  reach 8 only 6% of the time, mostly on fronts where print touches the
-  edge. Print can't be told apart from wear this way.
+- **Corner marks** are not snapped: a mark within the corner rounding (3 mm,
+  `cornerRadiusMm`) of both edges, the same test as the app's `markSpots`,
+  stays at the tap (`snap_status` `corner`, `corner` = tl/tr/br/bl). The
+  strips run straight; the card's edge curves away there.
+- **Which photos count** (`strips.photo_quality`), judged per photo on the
+  edge within ±4 mm of the tap:
+  - *Misplaced*: the photo's card edge sits more than 0.5 mm across from
+    photo 1's (the shift that best lines up the two photos' across-edge
+    brightness changes). Photo 1 is the reference and always stays.
+  - *Blurred*: sharpness under 0.75 of the sharpest photo left. Sharpness is
+    the app's "blur the blur" (`sharpness.js`) across the edge only, at
+    20 px/mm, after averaging 0.5 mm along so JPEG noise on the plain mat
+    doesn't count as detail. The strip is mostly mat and border, so the
+    numbers run lower than the app's whole-photo ones (0.2–0.55); they are
+    only compared with each other. A soft shadow on the mat can make photo 1
+    the one left out.
+  - Settings: `MIN_SHARP_SHARE`, `MAX_SHIFT_MM`, `SNAP_MIN_Z_ONE` in
+    `strips.py`, calibrated on few marks (2026-11-21).
+- Each usable photo's score is spread ±0.3 mm (the photos don't line up
+  exactly), then combined so it has to show in **every usable photo** (3 of
+  4 with 4). A glint in one photo doesn't count.
+- The strongest combined position scoring at least 8 (at least 6 when only
+  one photo is left) is the snap. The label then covers that fleck's
+  stretch (where the photos' summed score stays above half its peak).
+  Otherwise the mark stays unsnapped and covers the tap ± 0.75 mm
+  (`--mark-mm`).
+- Calibration: copy 12's marked fleck scores 13.7 on both photos and snaps
+  from 47.6 to 48.3 mm (stretch 48.05–48.6). 600 random taps on copies 12–32:
+  with two photos 5% reach 8; with one photo 15% reach 6 (10% even reach 8),
+  so a lone photo snaps much more easily. Print touching the edge can't be
+  told apart from wear this way.
 
 ### CSV columns
 
@@ -128,13 +148,18 @@ native_ppm, crop_ppm, copy, card, set, number, status, side, edge,
 along_mm_from, along_mm_to, nicks_checked` (0 on copies saved before
 v0.7.40, which never asked about nicks), `whitening_doubt, whitening_ignored,
 marks` (kinds of user marks touching the window), `mark_tap_along_mm,
-mark_snapped_along_mm, mark_snapped` (for a window labelled from a mark),
+mark_snapped_along_mm, mark_snapped, mark_snap` (for a window labelled from
+a mark; `mark_snap` is snapped / no-fleck / corner / no-strips),
 `hit_x0, hit_x1` (where in the crop the labelled stretch sits, crop px),
 `edge_offset_mm, app_version`.
 
 `marks.csv`, one row per user mark: `copy, side, mark_id, kind, x, y, edge,
-depth_mm, tap_along_mm, near_edge, snapped, snapped_along_mm,
-snapped_from_mm, snapped_to_mm, snap_score, photos`.
+corner, depth_mm, tap_along_mm, near_edge, snap_status` (snapped / no-fleck /
+corner / no-strips / no-usable-photo; empty for kinds not snapped),
+`snapped, snapped_along_mm, snapped_from_mm, snapped_to_mm, snap_score,
+snap_min_z` (the threshold it needed: 8, or 6 on one photo), `photos,
+photos_used` (photo numbers), `photos_dropped` (e.g. `p2: blurred (0.23 <
+0.75 x 0.38)` or `p2: edge +0.75 mm off photo 1's`).
 
 `data\manual_labels.json` holds labels entered by hand for older copies:
 

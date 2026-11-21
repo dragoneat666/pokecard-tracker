@@ -7,9 +7,10 @@ Run:  E:\\pokecard-ai\\venv\\Scripts\\python.exe -m unittest discover -s ml -p "
 import unittest
 
 import numpy as np
+from scipy.ndimage import gaussian_filter
 
-from common import mark_edge
-from strips import SideStrips, snap_mark
+from common import mark_corner, mark_edge
+from strips import SNAP_MIN_Z, SNAP_MIN_Z_ONE, SideStrips, photo_quality, snap_mark
 
 PINK, DARK, WHITE = (220, 30, 90), (35, 25, 20), (235, 230, 225)
 
@@ -22,20 +23,25 @@ def layout(ppm):
     return {'ppm': ppm, 'outPx': out, 'inPx': inn, 'width': max(lengths), 'height': 4 * (out + inn), 'rows': rows}
 
 
-def strip(ppm, fleck=None, shift_mm=0.0, seed=0):
+def strip(ppm, fleck=None, shift_mm=0.0, seed=0, edge_mm=0.0, blur_mm=0.0):
     """A strip: pink mat outside, dark border inside; fleck = (edge, from_mm,
     to_mm, depth_mm) painted near-white just inside the edge, moved
-    shift_mm along (photos line up only to a few tenths of a mm)."""
+    shift_mm along (photos line up only to a few tenths of a mm). edge_mm
+    moves the card's edge inwards (a photo lined up badly across the edge);
+    blur_mm blurs the photo (out of focus)."""
     lay = layout(ppm)
     img = np.zeros((lay['height'], lay['width'], 3), np.float32)
     out = lay['outPx']
+    e = out + round(edge_mm * ppm)
     for r in lay['rows']:
-        img[r['y']:r['y'] + out, :r['length']] = PINK
-        img[r['y'] + out:r['y'] + out + lay['inPx'], :r['length']] = DARK
+        img[r['y']:r['y'] + e, :r['length']] = PINK
+        img[r['y'] + e:r['y'] + out + lay['inPx'], :r['length']] = DARK
         if fleck and fleck[0] == r['edge']:
             _, a, b, d = fleck
             u0, u1 = round(out + (a + shift_mm) * ppm), round(out + (b + shift_mm) * ppm)
-            img[r['y'] + out:r['y'] + out + max(1, round(d * ppm)), u0:u1] = WHITE
+            img[r['y'] + e:r['y'] + e + max(1, round(d * ppm)), u0:u1] = WHITE
+    if blur_mm:
+        img = gaussian_filter(img, sigma=(blur_mm * ppm, blur_mm * ppm, 0))
     img += np.random.default_rng(seed).normal(0, 2.0, img.shape).astype(np.float32)
     return lay, np.clip(img, 0, 255)
 
@@ -96,6 +102,80 @@ class Snap(unittest.TestCase):
         ss = side_strips(strip(23, fleck, 0, 9), strip(23, fleck, 0, 10))
         r = snap_mark(ss, bottom_mark(47.6))
         self.assertFalse(r['snapped'], r)
+
+
+class PhotoQuality(unittest.TestCase):
+    """(a) A blurred photo, or one whose card edge sits off photo 1's, is
+    left out; on the one photo left a mark snaps with the lower threshold."""
+
+    fleck = ('bottom', 48.1, 48.6, 0.1)
+
+    def test_sharp_aligned_photos_both_used(self):
+        ss = side_strips(strip(23, self.fleck, 0.0, 1), strip(22, self.fleck, 0.2, 2))
+        q = photo_quality(ss, 'bottom', 43.6, 51.6)
+        self.assertEqual([x['use'] for x in q], [True, True], q)
+        r = snap_mark(ss, bottom_mark(47.6))
+        self.assertEqual((r['used'], r['dropped'], r['min_z']), ([1, 2], [], SNAP_MIN_Z))
+
+    def test_blurred_photo_left_out(self):
+        ss = side_strips(strip(23, self.fleck, 0.0, 3), strip(23, self.fleck, 0.0, 4, blur_mm=0.15))
+        q = photo_quality(ss, 'bottom', 43.6, 51.6)
+        self.assertTrue(q[0]['use'], q)
+        self.assertFalse(q[1]['use'], q)
+        self.assertIn('blurred', q[1]['why'])
+        r = snap_mark(ss, bottom_mark(47.6))
+        self.assertTrue(r['snapped'], r)
+        self.assertEqual(r['used'], [1])
+        self.assertEqual(r['min_z'], SNAP_MIN_Z_ONE)
+        self.assertTrue(r['dropped'][0].startswith('p2: blurred'), r)
+
+    def test_misplaced_photo_left_out(self):
+        # photo 2's card edge 1 mm in from photo 1's, and no fleck in it:
+        # with it counted the mark could never snap
+        ss = side_strips(strip(23, self.fleck, 0.0, 5), strip(23, None, 0.0, 6, edge_mm=1.0))
+        q = photo_quality(ss, 'bottom', 43.6, 51.6)
+        self.assertAlmostEqual(q[1]['shift'], 1.0, delta=0.15)
+        self.assertFalse(q[1]['use'], q)
+        self.assertIn('off photo 1', q[1]['why'])
+        r = snap_mark(ss, bottom_mark(47.6))
+        self.assertTrue(r['snapped'], r)
+        self.assertEqual(r['used'], [1])
+
+    def test_small_misplacement_kept(self):
+        ss = side_strips(strip(23, self.fleck, 0.0, 7), strip(23, self.fleck, 0.0, 8, edge_mm=0.3))
+        q = photo_quality(ss, 'bottom', 43.6, 51.6)
+        self.assertTrue(q[1]['use'], q)
+
+    def test_photo1_stays_when_photo2_is_off_and_sharper(self):
+        ss = side_strips(strip(23, self.fleck, 0.0, 9, blur_mm=0.06), strip(23, None, 0.0, 10, edge_mm=1.2))
+        q = photo_quality(ss, 'bottom', 43.6, 51.6)
+        self.assertEqual([x['use'] for x in q], [True, False], q)
+
+
+class Corner(unittest.TestCase):
+    """(b) Marks within the corner rounding of both edges aren't snapped."""
+
+    def test_mark_corner(self):
+        self.assertEqual(mark_corner({'x': 1.3, 'y': 0.5}), 'tl')
+        self.assertEqual(mark_corner({'x': 60.6, 'y': -0.5}), 'tr')
+        self.assertEqual(mark_corner({'x': 62.0, 'y': 87.0}), 'br')
+        self.assertEqual(mark_corner({'x': 0.5, 'y': 86.0}), 'bl')
+        self.assertIsNone(mark_corner({'x': 3.5, 'y': 0.1}))     # past the rounding along
+        self.assertIsNone(mark_corner({'x': 30.0, 'y': 0.1}))
+        self.assertEqual(mark_corner({'x': 3.5, 'y': 0.1}, radius_mm=4), 'tl')
+
+    def test_corner_mark_stays_at_the_tap(self):
+        fleck = ('top', 0.8, 1.4, 0.1)                            # a real fleck there
+        ss = side_strips(strip(23, fleck, 0.0, 11), strip(23, fleck, 0.0, 12))
+        r = snap_mark(ss, {'x': 1.3, 'y': 0.5, 'kind': 'whitening'})
+        self.assertFalse(r['snapped'], r)
+        self.assertEqual((r['status'], r['corner'], r['along']), ('corner', 'tl', 1.3))
+
+    def test_just_past_the_corner_still_snaps(self):
+        fleck = ('top', 3.6, 4.1, 0.1)
+        ss = side_strips(strip(23, fleck, 0.0, 13), strip(23, fleck, 0.0, 14))
+        r = snap_mark(ss, {'x': 3.4, 'y': 0.1, 'kind': 'whitening'})
+        self.assertEqual(r['status'], 'snapped', r)
 
 
 class Crop(unittest.TestCase):

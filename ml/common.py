@@ -164,6 +164,21 @@ def mark_edge(mark):
     return min(cand, key=lambda c: abs(c[2]))
 
 
+def corner_radius_mm(copy):
+    """The corner rounding the app used for this copy (settings.edges), mm."""
+    return (((copy.get('result') or {}).get('settings') or {}).get('edges') or {}).get('cornerRadiusMm', 3)
+
+
+def mark_corner(mark, radius_mm=3):
+    """'tl', 'tr', 'br' or 'bl' when a user mark is within a corner's
+    rounding of both edges (as the app's markSpots puts it on a corner
+    track), else None."""
+    x, y = mark['x'], mark['y']
+    v = 't' if y < radius_mm else 'b' if y > CARD_H_MM - radius_mm else ''
+    h = 'l' if x < radius_mm else 'r' if x > CARD_W_MM - radius_mm else ''
+    return v + h if v and h else None
+
+
 def step_to_along_mm(step, g):
     """A straight-edge track step of the saved picture (side_geometry g) ->
     mm along that edge from the card's corner-to-corner start, the same
@@ -178,6 +193,5 @@ def side_geometry(copy, side, img_w, img_h):
     margin = detail.get('pictureMargin') or 0
     W, H = img_w - 2 * margin, img_h - 2 * margin
     ppm = W / CARD_W_MM
-    radius_mm = (((copy.get('result') or {}).get('settings') or {}).get('edges') or {}).get('cornerRadiusMm', 3)
-    R = radius_mm * ppm
+    R = corner_radius_mm(copy) * ppm
     return dict(margin=margin, W=W, H=H, ppm=ppm, R=R, geo=TrackGeometry(W, H, R), detail=detail)

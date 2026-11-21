@@ -22,9 +22,11 @@
                       picture (red whitening, blue nicks/hand labels, grey
                       unconfirmed nicks). User marks: a yellow arrow (with
                       the kind's letter) above every photo at the tap, and
-                      a green bar under every photo where the mark snapped
-                      to (strips.snap_mark). The ruler is mm along the edge
-                      from the corner.
+                      a green bar under every photo the snap used where the
+                      mark snapped to (strips.snap_mark); a photo left out
+                      (blurred, or its edge off photo 1's) says why next to
+                      its name, as does a corner mark. The ruler is mm along
+                      the edge from the corner.
 
 Writes into <POKECARD_AI_DIR>\\runs\\sheets\\.
 Run:   E:\\pokecard-ai\\venv\\Scripts\\python.exe ml\\sheet.py [--focus 8:back:top:600:800]
@@ -161,8 +163,7 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
     for m in user_marks:
         if (m.get('kind') or 'other') in SNAP_KINDS:
             sn = snap_mark(sides_strips, m)
-            if sn['snapped']:
-                snaps[id(m)] = sn
+            snaps[id(m)] = sn
     blocks = []
     for edge in edges:
         tiles = []
@@ -181,11 +182,20 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
             tiles.append((photo, lay, band, out_px, shift))
         full_len = max(t[2].width for t in tiles)
         bh = tiles[0][2].height
-        H = 26 + len(tiles) * (bh + 30) + 34
+        # marks on this edge that weren't snapped on every photo: photos left
+        # out (strips.photo_quality) and corner marks, one line each under
+        # the title
+        notes = [f"mark at {sn['tap']:g} mm: {why}" for sn in snaps.values() if sn['edge'] == edge for why in sn['dropped']]
+        notes += [f"mark at {sn['tap']:g} mm: corner ({sn['corner']}), not snapped" for sn in snaps.values()
+                  if sn['edge'] == edge and sn['status'] == 'corner']
+        top = 26 + 16 * len(notes)
+        H = top + len(tiles) * (bh + 30) + 34
         block = Image.new('RGB', (full_len + 30, H), (255, 255, 255))
         d = ImageDraw.Draw(block)
         d.text((10, 4), f'{edge} edge' + (f', {mm[0]:g}-{mm[1]:g} mm from the corner' if mm else ''), fill=TEXT, font=fb)
-        y = 26
+        for i, n in enumerate(notes):
+            d.text((10, 24 + 16 * i), n, fill=TEXT, font=f)
+        y = top
         for photo, lay, band, out_px, shift in tiles:
             turn = lay.get('turn') or 'first photo'
             d.text((10, y), f"photo {photo} ({turn}), {lay['ppm']:g} px/mm", fill=TEXT, font=f)
@@ -215,7 +225,7 @@ def strips_view(copy, side, ppm=20.0, edges=EDGE_TRACKS, mm=None, zoom=1):
                 d.line([(mx - 9, my), (mx - 4, my)], fill=YELLOW, width=2)
                 d.line([(mx + 4, my), (mx + 9, my)], fill=YELLOW, width=2)
                 sn = snaps.get(id(m))
-                if sn:
+                if sn and sn['snapped'] and photo in sn['used']:
                     xa = 15 + round(out_px + sn['from_'] * s - shift)
                     xb = max(xa + 2, 15 + round(out_px + sn['to'] * s - shift))
                     d.rectangle([max(15, xa), y + band.height + 8, min(15 + band.width, xb), y + band.height + 11], fill=GREEN)

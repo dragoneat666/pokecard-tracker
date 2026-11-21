@@ -34,10 +34,15 @@ Labels (one per window, first match wins):
 User marks ({kind, x, y} mm) go to the nearest edge and count from 1 mm
 outside it to 1.75 mm inside. Marks of kind nick, other and whitening on
 sides with strips are SNAPPED (strips.snap_mark) to the strongest pale fleck
-or inward dip within +-1 mm of the tap that shows in every photo; the label
-then covers the snapped stretch. Unsnapped marks (nothing stood out, or no
-strips) cover the tap +- --mark-mm (0.75). index.csv keeps mark_tap_along_mm,
-mark_snapped_along_mm and mark_snapped; marks.csv lists every mark.
+or inward dip within +-1 mm of the tap that shows in every usable photo
+(blurred photos and ones whose edge sits off photo 1's are left out; one
+photo alone needs a lower score); the label then covers the snapped stretch.
+Marks within a corner's rounding are corner marks and stay at the tap.
+Unsnapped marks (nothing stood out, a corner, or no strips) cover the tap +-
+--mark-mm (0.75). index.csv keeps mark_tap_along_mm, mark_snapped_along_mm,
+mark_snapped and mark_snap (snapped / no-fleck / corner / no-strips);
+marks.csv lists every mark with the photos used and why others were left
+out.
 
 Writes  <POKECARD_AI_DIR>\\data\\crops\\<label>\\<window_id>_<photo>.png
         <POKECARD_AI_DIR>\\data\\crops\\index.csv   (one row per crop)
@@ -56,8 +61,8 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import map_coordinates
 
-from common import (CARD_H_MM, CARD_W_MM, EDGE_TRACKS, MISSED_WHITENING_KINDS, data_dir, load_copies, mark_edge,
-                    picture_path, side_geometry, step_to_along_mm)
+from common import (CARD_H_MM, CARD_W_MM, EDGE_TRACKS, MISSED_WHITENING_KINDS, corner_radius_mm, data_dir,
+                    load_copies, mark_corner, mark_edge, picture_path, side_geometry, step_to_along_mm)
 from strips import SNAP_KINDS, SideStrips, snap_mark
 
 LABELS = ['nick-yes', 'nick-known', 'nick-mark', 'missed-whitening', 'nick-no', 'whitening', 'mark-other',
@@ -168,19 +173,25 @@ def side_items(copy, side, g, manual, ss, args, mark_log):
     for mk in detail.get('marks') or []:
         kind = mk.get('kind') or 'other'
         edge, tap, depth = mark_edge(mk)
+        corner = mark_corner(mk, corner_radius_mm(copy))
         rec = dict(copy=copy['id'], side=side, mark_id=mk.get('id'), kind=kind, x=mk['x'], y=mk['y'], edge=edge,
-                   depth_mm=round(depth, 2), tap_along_mm=round(tap, 2), near_edge=int(-1.0 <= depth <= args.across / 2 + 0.5),
-                   snapped=0, snapped_along_mm='', snapped_from_mm='', snapped_to_mm='', snap_score='', photos=0)
+                   corner=corner or '', depth_mm=round(depth, 2), tap_along_mm=round(tap, 2),
+                   near_edge=int(-1.0 <= depth <= args.across / 2 + 0.5), snap_status='', snapped=0,
+                   snapped_along_mm='', snapped_from_mm='', snapped_to_mm='', snap_score='', snap_min_z='', photos=0,
+                   photos_used='', photos_dropped='')
         if rec['near_edge']:
             a, b = tap - args.mark_mm, tap + args.mark_mm
-            if kind in SNAP_KINDS and ss:
-                sn = snap_mark(ss, mk)
-                rec.update(snap_score=sn['score'], photos=sn['photos'])
+            if kind in SNAP_KINDS:
+                sn = snap_mark(ss, mk) if ss else dict(status='corner' if corner else 'no-strips', score=None, photos=0,
+                                                       min_z=None, used=[], dropped=[], snapped=False)
+                rec.update(snap_status=sn['status'], snap_score=sn['score'] if sn['score'] is not None else '',
+                           snap_min_z=sn['min_z'] or '', photos=sn['photos'],
+                           photos_used=' '.join(str(p) for p in sn['used']), photos_dropped='; '.join(sn['dropped']))
                 if sn['snapped']:
                     a, b = sn['from_'], sn['to']
                     rec.update(snapped=1, snapped_along_mm=sn['along'], snapped_from_mm=a, snapped_to_mm=b)
             label = 'nick-mark' if kind == 'nick' else 'missed-whitening' if kind in MISSED_WHITENING_KINDS else 'mark-other'
-            add(edge, label, a, b, tap=round(tap, 2), snapped=rec['snapped'],
+            add(edge, label, a, b, tap=round(tap, 2), snapped=rec['snapped'], snap_status=rec['snap_status'],
                 snapped_along=rec['snapped_along_mm'], mark_kind=kind)
         mark_log.append(rec)
     return out
@@ -290,6 +301,7 @@ def main():
                             'mark_tap_along_mm': it.get('tap', '') if it else '',
                             'mark_snapped_along_mm': it.get('snapped_along', '') if it else '',
                             'mark_snapped': it.get('snapped', '') if it and 'tap' in it else '',
+                            'mark_snap': it.get('snap_status', '') if it else '',
                             'hit_x0': hx[0], 'hit_x1': hx[1], 'edge_offset_mm': round(offset, 3),
                             'app_version': copy['result'].get('appVersion'),
                         })
@@ -320,8 +332,22 @@ def main():
     for lab in LABELS:
         print(f'  {lab:17s} {windows_by_label[lab]}')
     for m in mark_log:
-        state = (f'snapped to {m["snapped_along_mm"]} mm ({m["snapped_from_mm"]}-{m["snapped_to_mm"]}), score {m["snap_score"]}'
-                 if m['snapped'] else f'not snapped (score {m["snap_score"] or "-"})' if m['near_edge'] else 'not near an edge')
+        st = m['snap_status']
+        if not m['near_edge']:
+            state = 'not near an edge'
+        elif m['snapped']:
+            state = (f'snapped to {m["snapped_along_mm"]} mm ({m["snapped_from_mm"]}-{m["snapped_to_mm"]}), '
+                     f'score {m["snap_score"]} (needs {m["snap_min_z"]})')
+        elif st == 'corner':
+            state = f'corner mark ({m["corner"]}), kept at the tap'
+        elif st == 'no-fleck':
+            state = f'not snapped (score {m["snap_score"]}, needs {m["snap_min_z"]})'
+        else:
+            state = f'not snapped ({st or "kind not snapped"})'
+        if m['photos_used']:
+            state += f'; photos used {m["photos_used"]}'
+        if m['photos_dropped']:
+            state += f'; left out {m["photos_dropped"]}'
         print(f'  mark: copy {m["copy"]} {m["side"]} {m["kind"]} -> {m["edge"]} edge, tap {m["tap_along_mm"]} mm, {state}')
     if problems:
         print('Problems:')

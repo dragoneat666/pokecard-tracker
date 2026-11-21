@@ -9,9 +9,10 @@ pixel-centre column outPx + a*ppm - 0.5 and row row.y + outPx + d*ppm - 0.5.
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import gaussian_filter1d, map_coordinates, maximum_filter1d, median_filter
+from scipy.ndimage import gaussian_filter1d, map_coordinates, maximum_filter1d, median_filter, uniform_filter1d
 
-from common import CARD_H_MM, CARD_W_MM, MISSED_WHITENING_KINDS, mark_edge, strip_layouts, strip_path
+from common import (CARD_H_MM, CARD_W_MM, MISSED_WHITENING_KINDS, corner_radius_mm, mark_corner, mark_edge,
+                    strip_layouts, strip_path)
 
 SIDE_MM = {'top': CARD_W_MM, 'bottom': CARD_W_MM, 'right': CARD_H_MM, 'left': CARD_H_MM}
 SNAP_KINDS = MISSED_WHITENING_KINDS | {'nick'}
@@ -110,25 +111,128 @@ def fleck_scores(ss, k, edge, a_lo, a_hi, grid=0.025, ctx=4.0):
 # fronts where print touches the edge.
 SNAP_MIN_Z = 8.0
 
+# ─── which photos to trust round a mark ──────────────────────────────────────
+# A photo can be out of focus, or its card edge can sit off where photo 1's
+# is (the strips are lined up with photo 1). Such a photo can't show a fleck,
+# so needing it in every photo would turn every mark down. Each photo is
+# judged on the edge within +-QUALITY_CTX_MM of the tap:
+#   sharpness  "blur the blur" (Crete-Roffet 2007, as the app's sharpness.js)
+#              across the edge only, on the band round it at 20 px/mm:
+#              1 = sharp, 0 = blurred. The strip band is mostly plain mat and
+#              border, so the numbers run lower than the app's on the whole
+#              photo; it is compared with the sharpest photo there instead
+#              of a fixed floor (a soft shadow on the mat lowers all photos).
+#   shift      where the photo's card edge sits across the edge compared
+#              with photo 1's: the shift that best lines up the two photos'
+#              across-edge brightness changes (print and shadows alike).
+# Calibrated 2026-11-21 on few marks (6 user marks, copies 12-32): the
+# blurry sideways photos behind the copy 21 and 27 marks scored 0.18-0.29
+# against 0.43-0.45 for photo 1 there, with their edge 0.7-2 mm off; sharp
+# pairs stay above 0.8 of each other. Over all edges of copies 12-32 about
+# half of the sideways photos come out under 0.75 of photo 1 somewhere (seen
+# by eye: softer edges, flecks photo 1 shows gone); a soft shadow on the mat
+# can make photo 1 the one left out. 600 random taps: one photo left in 55%,
+# and they reach 6 / 7 / 8 in 15% / 12% / 10% of cases (two photos: 5%), so
+# a lone photo's threshold buys little by being higher; the copy 21 mark
+# scores 6.3. Recheck once there are more marks.
+QUALITY_CTX_MM = 4.0       # judged on the edge within +- this of the tap, mm
+MIN_SHARP_SHARE = 0.75     # under this share of the sharpest photo's = blurred
+MAX_SHIFT_MM = 0.5         # card edge more than this off photo 1's = misplaced
+SNAP_MIN_Z_ONE = 6.0       # threshold when only one photo is left to snap on
+QUALITY_PPM = 20.0         # px per mm the sharpness is measured at (as the app)
 
-def snap_mark(ss, mark, reach=1.0, min_z=SNAP_MIN_Z, align_mm=0.3):
+
+def _sharpness_across(g):
+    """blur-the-blur score down the rows of a grey patch (depth x along):
+    the share of the pixel-to-pixel change across the edge that a further
+    9-pixel blur takes away."""
+    R = 4
+    d = np.abs(np.diff(g, axis=0))
+    c = np.cumsum(np.pad(g, ((1, 0), (0, 0))), axis=0)
+    box = (c[2 * R + 1:] - c[:-2 * R - 1]) / (2 * R + 1)       # 9-row averages
+    db = np.abs(np.diff(box, axis=0))
+    d = d[R:R + db.shape[0]]
+    total = d.sum()
+    return float(1 - np.minimum(d, db).sum() / total) if total > 0 else 1.0
+
+
+def photo_quality(ss, edge, a_lo, a_hi, max_shift=MAX_SHIFT_MM, min_share=MIN_SHARP_SHARE):
+    """How far each photo of a side can be trusted on edge a_lo..a_hi mm:
+    [dict(photo, sharp, shift, use, why)], `why` empty for the ones used."""
+    step = 1.0 / QUALITY_PPM
+    along = np.arange(max(0.0, a_lo), min(SIDE_MM[edge], a_hi), step)
+    depth = np.arange(-1.9, 2.4 + 1e-9, step)
+    w = np.array([0.299, 0.587, 0.114], np.float32)
+    grey = [ss.sample(k, edge, along, depth) @ w for k in range(len(ss.photos))]
+    # across-edge change profiles, for the shift against photo 1
+    prof = [np.abs(np.diff(gaussian_filter1d(np.median(g, axis=1), 1.0))) for g in grey]
+    n_shift = int(round(1.5 / step))
+    ref = prof[0]
+    out = []
+    for k, g in enumerate(grey):
+        shift = 0.0
+        if k:
+            best, p = -1.0, prof[k]
+            for s in range(-n_shift, n_shift + 1):
+                a, b = (ref[:len(ref) - s], p[s:]) if s >= 0 else (ref[-s:], p[:len(p) + s])
+                score = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+                if score > best:
+                    best, shift = score, s * step
+        # averaged along first (0.5 mm): JPEG noise on the plain mat would
+        # otherwise count as fine detail and make a blurred photo look sharp
+        smooth = uniform_filter1d(g, size=int(round(0.5 / step)), axis=1, mode='nearest')
+        out.append(dict(photo=ss.photos[k][0], sharp=round(_sharpness_across(smooth), 3), shift=round(shift, 2),
+                        use=True, why=''))
+    # misplaced first (photo 1 is the reference, so it always stays), then
+    # blurred against the sharpest photo left
+    for q in out:
+        if abs(q['shift']) > max_shift:
+            q.update(use=False, why=f"edge {q['shift']:+.2f} mm off photo 1's")
+    best = max(q['sharp'] for q in out if q['use'])
+    for q in out:
+        if q['use'] and q['sharp'] < min_share * best:
+            q.update(use=False, why=f"blurred ({q['sharp']:.2f} < {min_share:g} x {best:.2f})")
+    return out
+
+
+def snap_mark(ss, mark, reach=1.0, min_z=SNAP_MIN_Z, min_z_one=SNAP_MIN_Z_ONE, align_mm=0.3, radius_mm=None):
     """Finds the fleck or dip a user mark points at: the strongest position
-    within +-reach mm of the tap along its edge, scored on every photo and
-    combined so it has to show in all of them (3 of 4 with 4 photos), like
-    the app's whitening check. Answers dict(edge, tap, along, from_, to,
-    depth, score, snapped, photos)."""
+    within +-reach mm of the tap along its edge, scored on every usable
+    photo (photo_quality) and combined so it has to show in all of them (3
+    of 4 with 4), like the app's whitening check; on one usable photo alone
+    it needs min_z_one. Marks within a corner's rounding of both edges are
+    not snapped (the strips run straight, the card's edge curves away
+    there). Answers dict(edge, tap, along, from_, to, depth, score,
+    snapped, status, corner, photos, used, dropped, min_z); status is
+    snapped / no-fleck / corner / no-strips / no-usable-photo."""
     edge, tap, depth = mark_edge(mark)
+    if radius_mm is None:
+        radius_mm = corner_radius_mm(ss.copy) if ss else 3
+    corner = mark_corner(mark, radius_mm)
     out = dict(edge=edge, tap=round(tap, 3), along=tap, from_=None, to=None, depth=depth, score=None,
-               snapped=False, photos=len(ss.photos) if ss else 0)
+               snapped=False, status='no-strips', corner=corner or '', photos=len(ss.photos) if ss else 0,
+               used=[], dropped=[], min_z=None)
+    if corner:
+        out['status'] = 'corner'
+        return out
     if not ss:
         return out
     side = SIDE_MM[edge]
     a_lo, a_hi = max(0.0, tap - reach), min(side, tap + reach)
+    quality = photo_quality(ss, edge, tap - QUALITY_CTX_MM, tap + QUALITY_CTX_MM)
+    use = [k for k, q in enumerate(quality) if q['use']]
+    out.update(used=[quality[k]['photo'] for k in use],
+               dropped=[f"p{q['photo']}: {q['why']}" for q in quality if not q['use']])
+    if not use:
+        out['status'] = 'no-usable-photo'
+        return out
+    min_z = min_z if len(use) > 1 else min_z_one
+    out['min_z'] = min_z
     # Photos line up along the edge only to a few tenths of a mm (copy 12:
     # the same fleck at 48.2 and 48.6 mm), so each photo's score is first
     # spread +-align_mm (a running max), as the app spreads its depths.
     per, raw = [], []
-    for k in range(len(ss.photos)):
+    for k in use:
         along, sc = fleck_scores(ss, edge=edge, k=k, a_lo=a_lo - align_mm, a_hi=a_hi + align_mm)
         raw.append(sc)
         per.append(maximum_filter1d(sc, size=2 * int(round(align_mm / 0.025)) + 1, mode='nearest'))
@@ -143,6 +247,7 @@ def snap_mark(ss, mark, reach=1.0, min_z=SNAP_MIN_Z, align_mm=0.3):
     combined = per[n - need]                          # the (need)th largest
     i = int(np.argmax(combined))
     out['score'] = round(float(combined[i]), 2)
+    out['status'] = 'no-fleck'
     if combined[i] >= min_z:
         # Where it is: the peak of the photos' summed raw scores within
         # align_mm of the combined peak (the spread blurs the position), and
@@ -156,5 +261,5 @@ def snap_mark(ss, mark, reach=1.0, min_z=SNAP_MIN_Z, align_mm=0.3):
         while j1 < len(raw_sum) - 1 and raw_sum[j1 + 1] >= raw_sum[p] / 2:
             j1 += 1
         out.update(along=round(float(along[p]), 3), from_=round(float(along[j0]), 3),
-                   to=round(float(along[j1]), 3), snapped=True)
+                   to=round(float(along[j1]), 3), snapped=True, status='snapped')
     return out
