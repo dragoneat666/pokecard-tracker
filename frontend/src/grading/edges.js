@@ -37,7 +37,7 @@
 // they set on the grade is a rough guide (the table in config.js), not a
 // grader's rule: graders judge wear by eye.
 
-export const EDGES_VERSION = 2;
+export const EDGES_VERSION = 3;
 
 export const TRACKS = ['top', 'tr', 'right', 'br', 'bottom', 'bl', 'left', 'tl'];
 export const CORNER_TRACKS = ['tr', 'br', 'bl', 'tl'];
@@ -86,7 +86,8 @@ export function trackGeometry(W, H, R) {
 //     the expected edge, + is inwards) } }, lit: { key: share }, unread,
 //     guessed (share of the outline where the card's edge didn't stand out
 //     from the background and the straightened outline was used instead) }
-export function scanEdges(image, margin, settings) {
+// back: the card's back, where tiny flecks are looked for too (backFlecks).
+export function scanEdges(image, margin, settings, { back = false } = {}) {
   const s = settings.edges;
   const W = image.width - 2 * margin, H = image.height - 2 * margin;
   const ppm = W / 63;
@@ -165,6 +166,9 @@ export function scanEdges(image, margin, settings) {
     }
     // 3. Where exactly the card starts, and how deep the whitening goes.
     const depth = new Float32Array(n).fill(NaN), edge = new Float32Array(n).fill(NaN);
+    // backs: the brightest darkest channel right at the edge (backFlecks)
+    const peak = new Float32Array(n).fill(NaN);
+    const fOut = Math.round(s.backFlecks.outMm * ppm), fIn = Math.round(s.backFlecks.inMm * ppm);
     for (let i = 0; i < n; i++) {
       total++;
       if (e0s[i] < 0 || !smooth[i]) { unread++; continue; }
@@ -212,14 +216,40 @@ export function scanEdges(image, margin, settings) {
         if (m && sumL / count - afterL / m < s.minStepIn) count = 0;
       }
       depth[i] = count;
+      if (back) {
+        let pk = 0;
+        for (let k = Math.max(0, e - fOut); k <= Math.min(len - 1, e + fIn); k++) {
+          const j = (i * len + k) * 3;
+          pk = Math.max(pk, Math.min(prof[j], prof[j + 1], prof[j + 2]));
+        }
+        peak[i] = pk;
+      }
     }
     // guess: where the straightened outline was used (the card's edge
     // didn't stand out), so `edge` there says nothing about the outline
-    tracks[key] = { depth, edge, guess };
+    tracks[key] = { depth, edge, guess, peak };
   }
   // Edges lit along much of their length (glints, if there is no second
-  // photo to tell).
+  // photo to tell). Judged before the flecks below are added.
   for (const key of ['top', 'right', 'bottom', 'left']) lit[key] = round(shareAtLeast(tracks[key].depth, 1), 2);
+  // Backs: a fleck is a step whose edge reading stands out from the steps
+  // around it (a steady pale line, like the light catching the edge, has
+  // the same reading all along and doesn't).
+  if (back) {
+    const { minLift, windowMm } = s.backFlecks;
+    const half = Math.round(windowMm * ppm), near = [];
+    for (const key of TRACKS) {
+      const { peak, depth } = tracks[key], n = peak.length;
+      for (let i = 0; i < n; i++) {
+        if (Number.isNaN(peak[i]) || Number.isNaN(depth[i]) || depth[i] >= s.minDepthPx) continue;
+        near.length = 0;
+        for (let j = Math.max(0, i - half); j <= Math.min(n - 1, i + half); j++) if (!Number.isNaN(peak[j])) near.push(peak[j]);
+        near.sort((a, b) => a - b);
+        if (peak[i] - near[near.length >> 1] >= minLift) depth[i] = s.minDepthPx;
+      }
+    }
+  }
+  for (const key of TRACKS) delete tracks[key].peak;
   return { W, H, ppm, R, tracks, lit, unread: total ? round(unread / total, 3) : 1, guessed: total ? round(guessed / total, 3) : 0 };
 }
 

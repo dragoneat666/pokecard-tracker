@@ -274,7 +274,7 @@ export default function Grading() {
   const toEdges = () => busy('Getting the edges ready…', async () => {
     const margin = Math.round(settings.edges.marginMm * settings.image.pxPerMm);
     const imageM = await straighten(work.bitmap, work.quad, { margin });
-    const scanA = scanEdges(imageM, margin, settings);
+    const scanA = scanEdges(imageM, margin, settings, { back: side === 'back' });
     const stripA = startStrips(work.bitmap, work.quad);
     setWork(w => ({ ...w, imageM, scanA, margin, extras: [], glare: glareShare(imageM, margin), stripA }));
     setStep('turned');
@@ -327,7 +327,7 @@ export default function Grading() {
       if (sharp < need) {
         throw new Error(`This photo came out out of focus (sharpness ${sharp.toFixed(2)}, needs ${need.toFixed(2)}), so small whitening would be missed. Take it again: hold still a moment after it focuses on the card.`);
       }
-      const scan = scanEdges(image, work.margin, settings);
+      const scan = scanEdges(image, work.margin, settings, { back: side === 'back' });
       const n = (work.extras?.length || 0) + 2;
       const strip = startStrips(bitmap, flipped ? turnQuad(found.quad) : found.quad);
       const extras = [...(work.extras || []), {

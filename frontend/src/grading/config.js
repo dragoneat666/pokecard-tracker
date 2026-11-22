@@ -151,6 +151,17 @@ export const GRADING_DEFAULTS = {
     // brightness before, pink paper on the lamp's side failed it: 50-90% of
     // the outline went unread, so a glint in the other photo counted alone.)
     maxBackground: 110,
+    // Backs only (every card back has the same dark blue rim): tiny flecks of
+    // whitening, about 0.1 mm, that the photo blurs into the background so
+    // the edge is found past them. Along each step the brightest darkest
+    // channel from outMm outside to inMm inside the edge is taken; where it
+    // is minLift (0-255) above its median over windowMm either way, the step
+    // counts as whitened (minDepthPx), and the usual every-photo rule
+    // applies. On the base set copies tried, it found 18 of 38 marked flecks
+    // (none before) plus real ones not marked, and nothing on 14 clean
+    // modern backs. Not on fronts: print and foil reaching the edge look the
+    // same.
+    backFlecks: { outMm: 0.15, inMm: 0.4, minLift: 15, windowMm: 2 },
     // A pixel is whitened when it has moved at least this share of the way
     // from the border's colour towards white, and is this much brighter.
     // (Worn card stock came out 0.7-0.9 of the way on blue, yellow and
