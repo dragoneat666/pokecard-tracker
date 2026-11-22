@@ -37,7 +37,7 @@
 // they set on the grade is a rough guide (the table in config.js), not a
 // grader's rule: graders judge wear by eye.
 
-export const EDGES_VERSION = 1;
+export const EDGES_VERSION = 2;
 
 export const TRACKS = ['top', 'tr', 'right', 'br', 'bottom', 'bl', 'left', 'tl'];
 export const CORNER_TRACKS = ['tr', 'br', 'bl', 'tl'];
@@ -169,8 +169,10 @@ export function scanEdges(image, margin, settings) {
       total++;
       if (e0s[i] < 0 || !smooth[i]) { unread++; continue; }
       const ref = smooth[i], bg = [bgs[i * 3], bgs[i * 3 + 1], bgs[i * 3 + 2]];
-      // whitening (near white) only stands out from a dark background
-      if ((bg[0] + bg[1] + bg[2]) / 3 > s.maxBackground) { unread++; continue; }
+      // whitening (near white) only stands out from a background that isn't
+      // whitish itself: judged by its darkest channel, so bright pink paper
+      // (lit up on the lamp's side) is still read, a white or grey one isn't
+      if (Math.min(bg[0], bg[1], bg[2]) > s.maxBackground) { unread++; continue; }
       const half = 0.5 * colourDistance(ref, bg);
       let e = e0s[i];
       if (guess[i]) {

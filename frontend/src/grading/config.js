@@ -145,8 +145,11 @@ export const GRADING_DEFAULTS = {
     // reading brighter than this share of all of them along the edge; print
     // in the border makes readings darker), the plain colour is used.
     usualShare: 0.8,
-    // Whitening only shows against a dark background: where the background
-    // outside the edge is brighter than this (0-255), the edge isn't read.
+    // Whitening only shows against a background that isn't whitish: where
+    // the background outside the edge has all its channels above this
+    // (0-255; its darkest channel), the edge isn't read. (Judged by overall
+    // brightness before, pink paper on the lamp's side failed it: 50-90% of
+    // the outline went unread, so a glint in the other photo counted alone.)
     maxBackground: 110,
     // A pixel is whitened when it has moved at least this share of the way
     // from the border's colour towards white, and is this much brighter.
