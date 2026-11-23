@@ -191,6 +191,11 @@ export const GRADING_DEFAULTS = {
     glareWarnShare: 0.002,
     // The two photos' outlines may differ by this many pixels along an edge.
     alignPx: 3,
+    // On backs, whitening flecks only 0.1 mm deep were found up to 0.4 mm
+    // apart along the edge between two photos, so backs allow more: on the
+    // base set copies this found 3 more marked flecks and 20 more spots, and
+    // nothing new on 14 clean modern backs.
+    alignPxBack: 8,
     // A turned photo matching the first less than this (edges.matchScore;
     // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
     // turned away: "take it again".

@@ -37,7 +37,7 @@
 // they set on the grade is a rough guide (the table in config.js), not a
 // grader's rule: graders judge wear by eye.
 
-export const EDGES_VERSION = 3;
+export const EDGES_VERSION = 4;
 
 export const TRACKS = ['top', 'tr', 'right', 'br', 'bottom', 'bl', 'left', 'tl'];
 export const CORNER_TRACKS = ['tr', 'br', 'bl', 'tl'];
@@ -250,7 +250,7 @@ export function scanEdges(image, margin, settings, { back = false } = {}) {
     }
   }
   for (const key of TRACKS) delete tracks[key].peak;
-  return { W, H, ppm, R, tracks, lit, unread: total ? round(unread / total, 3) : 1, guessed: total ? round(guessed / total, 3) : 0 };
+  return { W, H, ppm, R, back, tracks, lit, unread: total ? round(unread / total, 3) : 1, guessed: total ? round(guessed / total, 3) : 0 };
 }
 
 // The second photo (card turned a quarter turn, then straightened, so it may
@@ -301,14 +301,14 @@ export function turnImage(image) {
 // Scans of the same side (all but the first already lined up with it): at
 // each point the smallest depth (with 4 or more photos, the depth all but one
 // of them reach), after letting each spread alignPx either way (the outlines
-// can differ by a pixel or two). combineScans([a, b, c], settings),
+// can differ by a pixel or two; backs alignPxBack). combineScans([a, b, c], settings),
 // or combineScans(a, b, settings) for two. Answers a scan with combined: true
 // and photos: how many went into it.
 export function combineScans(a, b, settings) {
   const scans = Array.isArray(a) ? a : [a, b];
   if (Array.isArray(a)) settings = b;
-  const k = settings.edges.alignPx;
   const first = scans[0];
+  const k = first.back ? (settings.edges.alignPxBack ?? settings.edges.alignPx) : settings.edges.alignPx;
   const tracks = {}, some = {}, spreads = {};
   for (const key of TRACKS) {
     const spreadOut = scans.map(sc => spread(sc.tracks[key].depth, k));
