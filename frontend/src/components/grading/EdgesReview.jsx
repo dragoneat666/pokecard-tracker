@@ -9,7 +9,7 @@
 // edge dipping in, in the same place in 2 or more photos) are listed below
 // in blue, not counted until the user taps "It's a nick".
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { trackGeometry, TRACK_NAMES, TRACKS } from '../../grading/edges.js';
 import { MARK_KINDS } from '../../grading/surface.js';
 import { drawCanvas, imageCanvas, useCanvasWidth } from './canvasTools.js';
@@ -19,6 +19,7 @@ const GREY = 'rgba(150, 150, 150, 0.8)';
 const AMBER = 'rgba(255, 180, 0, 0.9)';
 const BLUE = 'rgba(40, 170, 255, 0.95)';
 const YELLOW = 'rgba(255, 220, 0, 0.95)';
+const SPOTS_AT_A_TIME = 40;
 
 // Spots in the order they go round the card.
 export function orderedSpots(spots) {
@@ -34,6 +35,9 @@ export default function EdgesReview({ edges, onToggle, onToggleNick }) {
   const extras = edges.extras || (imageB ? [{ image: imageB, label: 'sideways' }] : []);
   const list = orderedSpots(spots).filter(sp => !sp.doubt);
   const skip = new Set(ignored);
+  // close-ups for this many spots at a time (each photo's close-up is a
+  // canvas; a worn back with 4 photos can have 100 spots)
+  const [shown, setShown] = useState(SPOTS_AT_A_TIME);
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
       <EdgesCard edges={edges} maxWidth={360} suggestions />
@@ -47,7 +51,7 @@ export default function EdgesReview({ edges, onToggle, onToggleNick }) {
         ? <p style={{ margin: 0 }}>No whitening found{doubtTracks.length ? ' on the edges that could be checked' : ''}.</p>
         : (
           <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
-            {list.map((sp, n) => (
+            {list.slice(0, shown).map((sp, n) => (
               <div key={sp.id} style={{ display: 'grid', gap: 6, opacity: skip.has(sp.id) ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
                   <b>{n + 1}.</b>
@@ -66,6 +70,12 @@ export default function EdgesReview({ edges, onToggle, onToggleNick }) {
                 </div>
               </div>
             ))}
+            {list.length > shown && (
+              <button className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }}
+                onClick={() => setShown(shown + SPOTS_AT_A_TIME)}>
+                Show {Math.min(SPOTS_AT_A_TIME, list.length - shown)} more spots ({list.length - shown} not shown; all are on the picture above)
+              </button>
+            )}
           </div>
         )}
       {onToggleNick && (

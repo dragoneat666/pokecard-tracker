@@ -35,10 +35,18 @@ export function drawCanvas(canvas, cssW, cssH, draw) {
   draw(ctx);
 }
 
-// ImageData -> a canvas that can be drawn from (drawImage needs one).
+// ImageData -> a canvas that can be drawn from (drawImage needs one). Made
+// once per picture and reused: every spot close-up draws from the same card
+// picture, and a copy each (about 9 MB) crashed the phone app at around 100
+// spots with 4 photos. Pictures are never changed after they're made.
+const canvases = new WeakMap();
 export function imageCanvas(image) {
-  const c = new OffscreenCanvas(image.width, image.height);
-  c.getContext('2d').putImageData(image, 0, 0);
+  let c = canvases.get(image);
+  if (!c) {
+    c = new OffscreenCanvas(image.width, image.height);
+    c.getContext('2d').putImageData(image, 0, 0);
+    canvases.set(image, c);
+  }
   return c;
 }
 
