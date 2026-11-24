@@ -201,6 +201,10 @@ export const GRADING_DEFAULTS = {
     // it". On 8 worn base set backs with 4 photos the user counted 152 of
     // 173 of them by hand.
     countMaybeBackPhotos: 4,
+    // ...but only when that back already has this many spots seen in every
+    // photo. Those worn backs had 8-67 each; a clean card pulled that day
+    // (Aarune) had none, and its 10 "seen in 2 of 4" spots were all glints.
+    countMaybeMinSure: 5,
     // A turned photo matching the first less than this (edges.matchScore;
     // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
     // turned away: "take it again".

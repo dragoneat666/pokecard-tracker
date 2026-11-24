@@ -284,10 +284,12 @@ export default function Grading() {
   const showEdges = (scan, extras = []) => {
     const found = findSpots(scan, settings);
     // seen in some of the photos only: listed, not counted until "Count it"
-    // (on a back with enough photos, counted until "Not whitening")
-    const maybe = maybeSpots(scan, found.filter(sp => !sp.doubt), settings);
+    // (on a worn back with enough photos, counted until "Not whitening")
+    const sure = found.filter(sp => !sp.doubt);
+    const maybe = maybeSpots(scan, sure, settings);
     const photos = 1 + extras.length;
-    const maybeCounted = side === 'back' && photos >= (settings.edges.countMaybeBackPhotos ?? Infinity);
+    const maybeCounted = side === 'back' && photos >= (settings.edges.countMaybeBackPhotos ?? Infinity)
+      && sure.length >= (settings.edges.countMaybeMinSure ?? 0);
     const spots = [...found, ...maybe];
     const doubtTracks = doubtTracksOf(scan, settings);
     // possible nicks: the first photo's outline and the turned photos'
@@ -752,7 +754,7 @@ function MorePhotos({ edges, onMore }) {
     return (
       <>
         {counted > 0 && <p style={note}>{edges.maybeCounted
-          ? 'Spots seen in at least 2 of the 4 photos are counted (on worn backs nearly all of them are real). If you can\'t see one on the card, tap "Not whitening".'
+          ? 'This back has whitening in every photo, so spots seen in at least 2 of the 4 are counted too (on worn backs nearly all of them are real). If you can\'t see one on the card, tap "Not whitening".'
           : 'What\'s counted is in at least 3 of the 4 photos, so it\'s most likely real. If you still can\'t see it on the card, tap "Not whitening".'}</p>}
         {maybe > 0 && <p style={note}>Spots seen in only some of the photos aren't counted. If you can see one on the card, tap "Count it".</p>}
       </>
