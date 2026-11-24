@@ -196,6 +196,11 @@ export const GRADING_DEFAULTS = {
     // base set copies this found 3 more marked flecks and 20 more spots, and
     // nothing new on 14 clean modern backs.
     alignPxBack: 8,
+    // Spots seen in only some of the photos (at least 2) start out counted on
+    // a back with this many photos or more; elsewhere they wait for "Count
+    // it". On 8 worn base set backs with 4 photos the user counted 152 of
+    // 173 of them by hand.
+    countMaybeBackPhotos: 4,
     // A turned photo matching the first less than this (edges.matchScore;
     // the same card scored 0.5-0.95, a blurred photo found wrong 0.37) is
     // turned away: "take it again".

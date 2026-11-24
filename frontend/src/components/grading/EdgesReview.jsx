@@ -26,7 +26,7 @@ export function orderedSpots(spots) {
   return [...spots].sort((a, b) => TRACKS.indexOf(a.track) - TRACKS.indexOf(b.track) || a.from - b.from);
 }
 
-export default function EdgesReview({ edges, onToggle, onToggleNick }) {
+export default function EdgesReview({ edges, onToggle, onToggleNick, onCountAllMaybe }) {
   const { scan, spots, ignored, doubtTracks, combined, margin, image, imageB } = edges;
   const nicks = orderedSpots(edges.nicks || []);
   const nickYes = new Set(edges.nickYes || []);
@@ -38,6 +38,7 @@ export default function EdgesReview({ edges, onToggle, onToggleNick }) {
   // close-ups for this many spots at a time (each photo's close-up is a
   // canvas; a worn back with 4 photos can have 100 spots)
   const [shown, setShown] = useState(SPOTS_AT_A_TIME);
+  const maybeLeft = list.filter(sp => sp.maybe && skip.has(sp.id)).length;
   return (
     <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
       <EdgesCard edges={edges} maxWidth={360} suggestions />
@@ -51,6 +52,15 @@ export default function EdgesReview({ edges, onToggle, onToggleNick }) {
         ? <p style={{ margin: 0 }}>No whitening found{doubtTracks.length ? ' on the edges that could be checked' : ''}.</p>
         : (
           <div style={{ display: 'grid', gap: 'var(--space-3)' }}>
+            {onCountAllMaybe && maybeLeft >= 2 && (
+              <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                  {maybeLeft} spots seen in only some of the photos aren't counted.
+                </span>
+                <button className="btn btn-sm" onClick={onCountAllMaybe}>Count all {maybeLeft}</button>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>then tap "Not whitening" on any that aren't</span>
+              </div>
+            )}
             {list.slice(0, shown).map((sp, n) => (
               <div key={sp.id} style={{ display: 'grid', gap: 6, opacity: skip.has(sp.id) ? 0.55 : 1 }}>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>

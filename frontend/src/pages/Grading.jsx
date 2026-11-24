@@ -284,7 +284,10 @@ export default function Grading() {
   const showEdges = (scan, extras = []) => {
     const found = findSpots(scan, settings);
     // seen in some of the photos only: listed, not counted until "Count it"
+    // (on a back with enough photos, counted until "Not whitening")
     const maybe = maybeSpots(scan, found.filter(sp => !sp.doubt), settings);
+    const photos = 1 + extras.length;
+    const maybeCounted = side === 'back' && photos >= (settings.edges.countMaybeBackPhotos ?? Infinity);
     const spots = [...found, ...maybe];
     const doubtTracks = doubtTracksOf(scan, settings);
     // possible nicks: the first photo's outline and the turned photos'
@@ -294,7 +297,7 @@ export default function Grading() {
       ...w,
       extras,
       edges: {
-        scan, spots, ignored: maybe.map(sp => sp.id), doubtTracks, combined: !!scan.combined, photos: 1 + extras.length,
+        scan, spots, ignored: maybeCounted ? [] : maybe.map(sp => sp.id), doubtTracks, combined: !!scan.combined, photos, maybeCounted,
         nicks, nickYes: [], nicksUnchecked: scans.length > 1 ? nicksUnchecked(scans, settings) : [],
         margin: w.margin, image: w.imageM, extras,
       },
@@ -351,6 +354,13 @@ export default function Grading() {
   const toggleSpot = (id) => setWork(w => {
     const ignored = w.edges.ignored.includes(id) ? w.edges.ignored.filter(x => x !== id) : [...w.edges.ignored, id];
     return { ...w, edges: { ...w.edges, ignored } };
+  });
+
+  // every "seen in some photos" spot counted at once (then "Not whitening"
+  // on the ones that aren't)
+  const countAllMaybe = () => setWork(w => {
+    const maybe = new Set(w.edges.spots.filter(sp => sp.maybe).map(sp => sp.id));
+    return { ...w, edges: { ...w.edges, ignored: w.edges.ignored.filter(id => !maybe.has(id)) } };
   });
 
   const toggleNick = (id) => setWork(w => {
@@ -533,7 +543,7 @@ export default function Grading() {
               <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 {n === 2
                   ? 'Light glinting off a card\'s cut edges looks just like whitening in one photo. With the card turned, the glints move to other edges while real whitening stays put, so the two photos tell them apart.'
-                  : 'Whitening was still found. If it\'s the light, it won\'t be in the same place with the card turned this way. Whitening only counts if it\'s in every photo.'}
+                  : 'With the card turned another way the light lands differently: glints move to other edges, real whitening stays put, and small flecks the light hid can show up. Spots seen in only some of the photos are listed for you to check.'}
               </p>
             </section>
             <CameraCapture key={`${side}-turned-${n}`} sideName={`${NAMES[side]} (${turn.label})`} onPhoto={onTurnedPhoto} guide={turn.guide} />
@@ -557,7 +567,7 @@ export default function Grading() {
               ⚠️ Glare on part of the card: whitening under it can't be seen. If it's near an edge, move the light and retake.
             </p>
           )}
-          <EdgesReview edges={work.edges} onToggle={toggleSpot} onToggleNick={toggleNick} />
+          <EdgesReview edges={work.edges} onToggle={toggleSpot} onToggleNick={toggleNick} onCountAllMaybe={countAllMaybe} />
           <MorePhotos edges={work.edges} onMore={() => setStep('turned')} />
           <div style={rowStyle}>
             <button className={`btn ${wantsMorePhotos(work.edges) ? 'btn-ghost' : 'btn-primary'}`} onClick={toSurface}>Next: surface</button>
@@ -729,27 +739,36 @@ function wantsMorePhotos(edges) {
   return photos >= 2 && photos < MAX_PHOTOS && (countedSpots(edges) > 0 || maybeLeft(edges) > 0);
 }
 
+// After 2 or 3 photos another turned photo is always offered: with spots
+// found it double-checks them; with none, small flecks the light hid can
+// show up in it (worn yellow fronts read nothing in 2 photos).
 function MorePhotos({ edges, onMore }) {
   const photos = edges.photos || 1;
   const counted = countedSpots(edges), maybe = maybeLeft(edges);
-  if (photos < 2 || (!counted && !maybe)) return null;
+  if (photos < 2) return null;
   const note = { margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' };
   if (photos >= MAX_PHOTOS) {
+    if (!counted && !maybe) return null;
     return (
       <>
-        {counted > 0 && <p style={note}>What's counted is in at least 3 of the 4 photos, so it's most likely real. If you still can't see it on the card, tap "Not whitening".</p>}
+        {counted > 0 && <p style={note}>{edges.maybeCounted
+          ? 'Spots seen in at least 2 of the 4 photos are counted (on worn backs nearly all of them are real). If you can\'t see one on the card, tap "Not whitening".'
+          : 'What\'s counted is in at least 3 of the 4 photos, so it\'s most likely real. If you still can\'t see it on the card, tap "Not whitening".'}</p>}
         {maybe > 0 && <p style={note}>Spots seen in only some of the photos aren't counted. If you can see one on the card, tap "Count it".</p>}
       </>
     );
   }
   const n = photos + 1;
+  const how = `take photo ${n} with the card ${TURNS[n].label}`;
   const why = counted
-    ? `Whitening was found in ${photos === 2 ? 'both' : `all ${photos}`} photos. If you can't see it on the card, it may be the light`
-    : `Some spots showed in only some of the ${photos} photos (not counted)`;
+    ? `Whitening was found in ${photos === 2 ? 'both' : `all ${photos}`} photos. If you can't see it on the card, it may be the light: ${how} to double-check.`
+    : maybe
+      ? `Some spots showed in only some of the ${photos} photos (not counted): ${how} to double-check.`
+      : `No whitening found in ${photos} photos. If you can see some on the card, ${how}: the light lands differently and small flecks can show up.`;
   return (
     <div style={{ display: 'grid', gap: 'var(--space-2)', padding: 'var(--space-2) var(--space-3)', borderRadius: 8, background: 'var(--bg-elevated)' }}>
-      <span>{why}: take photo {n} with the card {TURNS[n].label} to double-check.</span>
-      <div><button className="btn btn-primary" onClick={onMore}>Double-check: photo {n}</button></div>
+      <span>{why}</span>
+      <div><button className={`btn ${counted || maybe ? 'btn-primary' : 'btn-ghost'}`} onClick={onMore}>{counted || maybe ? 'Double-check' : 'Look again'}: photo {n}</button></div>
     </div>
   );
 }
