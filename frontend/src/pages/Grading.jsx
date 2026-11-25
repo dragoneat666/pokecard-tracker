@@ -38,7 +38,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useLeaveGuard } from '../leaveGuard.js';
 import { mergeSettings, labOverrides } from '../grading/config.js';
 import { loadPhoto, findCard, refineEdges, straighten, turnQuad, warmUp, worstBend, detailOf, edgeStrips } from '../grading/vision.js';
-import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, markSpots, edgesCap, glareShare } from '../grading/edges.js';
+import { scanEdges, sameWayUp, turnImage, combineScans, findSpots, maybeSpots, matchScore, borderMatch, findNicks, nicksUnchecked, doubtTracksOf, measureEdges, markSpots, edgesCap, glareShare } from '../grading/edges.js';
 import { analyzer } from '../grading/analyzers.js';
 import { slopesInUse, ratioWords } from '../grading/centering.js';
 import { emptySurface, surfaceText, MARK_KINDS } from '../grading/surface.js';
@@ -215,6 +215,10 @@ export default function Grading() {
         strips: stripInfo,
         // each photo's sharpness as taken (first, then the turned ones)
         sharpness: [d.sharp ?? null, ...(d.edges?.extras || []).map(x => x.sharp ?? null)],
+        // the turned photos used: how well each lined up with the first, and
+        // the camera; then the ones that weren't used, and why
+        lineUp: (d.edges?.extras || []).map(x => ({ match: x.match ?? null, border: x.border ?? null, camera: x.camera?.camera || null })),
+        turnedRefused: d.refused || [],
       };
     }
     const result = {
@@ -276,7 +280,7 @@ export default function Grading() {
     const imageM = await straighten(work.bitmap, work.quad, { margin });
     const scanA = scanEdges(imageM, margin, settings, { back: side === 'back' });
     const stripA = startStrips(work.bitmap, work.quad);
-    setWork(w => ({ ...w, imageM, scanA, margin, extras: [], glare: glareShare(imageM, margin), stripA }));
+    setWork(w => ({ ...w, imageM, scanA, margin, extras: [], refused: [], glare: glareShare(imageM, margin), stripA }));
     setStep('turned');
   });
 
@@ -309,9 +313,15 @@ export default function Grading() {
 
   const onTurnedPhoto = (photo, camera = {}) => busy('Finding the card in the sideways photo…', async () => {
     const bitmap = await loadPhoto(photo);
+    const n = (work.extras?.length || 0) + 2;
+    // why a turned photo wasn't used, kept with the copy (for tuning these checks)
+    const refuse = (why, info = {}) => setWork(w => ({
+      ...w, refused: [...(w.refused || []), { photo: n, why, ...info, camera: camera.camera || null }],
+    }));
     try {
       const found = await findCard(bitmap);
       if (!found.quad) {
+        refuse(found.cutOff ? 'cut off' : 'not found');
         throw new Error(found.cutOff
           ? 'The card runs off the edge of the sideways photo. Take it again with a gap all round the card.'
           : 'Couldn\'t find the card in the sideways photo. Take it again, or skip it.');
@@ -321,8 +331,13 @@ export default function Grading() {
       let flipped = false;
       if (sameWayUp(work.imageM, image, work.margin) < 0) { image = turnImage(image); flipped = true; }
       // an out-of-focus photo, or one whose outline was found wrong, would
-      // hide whitening that's really there
-      if (matchScore(work.imageM, image, work.margin) < settings.edges.minMatch) {
+      // hide whitening that's really there. The card's middle is compared
+      // first; on a holo front the foil changes with the light, so the
+      // printed lines near the border can pass it instead.
+      const match = matchScore(work.imageM, image, work.margin);
+      const border = match < settings.edges.minMatch ? borderMatch(work.imageM, image, work.margin) : null;
+      if (match < settings.edges.minMatch && border < (settings.edges.minBorderMatch ?? Infinity)) {
+        refuse('line-up', { match, border });
         throw new Error('This photo doesn\'t line up with the first one: it may be out of focus, or the card wasn\'t found right. Take it again.');
       }
       // out of focus (the camera checks its preview, but the photo itself is
@@ -330,13 +345,13 @@ export default function Grading() {
       const sharp = Math.round(sharpnessOf(imageGrey(image, work.margin)).score * 100) / 100;
       const need = Math.max(settings.edges.minSharp, (work.sharp || 0) * settings.edges.minSharpShare);
       if (sharp < need) {
+        refuse('focus', { sharp, need: Math.round(need * 100) / 100 });
         throw new Error(`This photo came out out of focus (sharpness ${sharp.toFixed(2)}, needs ${need.toFixed(2)}), so small whitening would be missed. Take it again: hold still a moment after it focuses on the card.`);
       }
       const scan = scanEdges(image, work.margin, settings, { back: side === 'back' });
-      const n = (work.extras?.length || 0) + 2;
       const strip = startStrips(bitmap, flipped ? turnQuad(found.quad) : found.quad);
       const extras = [...(work.extras || []), {
-        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad, strip, sharp,
+        image, scan, label: TURNS[n].label, photo, camera, photoSize: [bitmap.width, bitmap.height], quad: found.quad, strip, sharp, match, border,
       }];
       showEdges(combineScans([work.scanA, ...extras.map(x => x.scan)], settings), extras);
     } finally {

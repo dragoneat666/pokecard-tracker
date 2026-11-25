@@ -286,6 +286,120 @@ export function matchScore(imageA, imageB, margin) {
   return aa && bb ? round(ab / Math.sqrt(aa * bb), 3) : 0;
 }
 
+// How well two straightened pictures of the same side line up, judged by the
+// printed lines near the card's border only (-1..1). The card's middle (what
+// matchScore compares) changes with the light on holo foil, so a turned holo
+// front can fail matchScore though it lines up; the border has no foil, and
+// an outline found a few mm off (the inner frame, say) moves its lines away.
+// On the sent-for-testing photos: lined-up backs 0.6-0.9, fronts mostly
+// 0.3-0.9 (blurry full-art fronts lower), outlines 3 mm in or 1.5 mm off
+// at most 0.27. Each picture's lines are compared at up to 0.2 mm apart.
+const CARD_W_MM = 63, CARD_H_MM = 88;
+export function borderMatch(imageA, imageB, margin, { outerMm = 6, cellMm = 1, search = 1 } = {}) {
+  const a = lineMap(imageA, margin), b = lineMap(imageB, margin);
+  const va = borderCells(a, outerMm, cellMm, 0, 0);
+  let best = -1;
+  for (let dy = -search; dy <= search; dy++) {
+    for (let dx = -search; dx <= search; dx++) {
+      best = Math.max(best, pearsonOf(va, borderCells(b, outerMm, cellMm, dx, dy)));
+    }
+  }
+  return round(best, 3);
+}
+
+// A picture at a quarter of its size: how strongly the print changes at each
+// point (edges of lines and letters), against the brightness around it so a
+// darker side of the card counts the same.
+function lineMap(image, margin) {
+  const s = 4;
+  const { width, height, data } = image;
+  const w = Math.floor(width / s), h = Math.floor(height / s);
+  const g = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let yy = y * s; yy < y * s + s; yy++) {
+        for (let xx = x * s; xx < x * s + s; xx++) {
+          const i = (yy * width + xx) * 4;
+          sum += data[i] + data[i + 1] + data[i + 2];
+        }
+      }
+      g[y * w + x] = sum / (3 * s * s);
+    }
+  }
+  const soft = boxMean(g, w, h, 1), around = boxMean(g, w, h, 8);
+  const mag = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x;
+      const gx = (soft[i + 1] - soft[i - 1]) / 2, gy = (soft[i + w] - soft[i - w]) / 2;
+      mag[i] = Math.hypot(gx, gy) / (around[i] + 10);
+    }
+  }
+  const ppm = (width - 2 * margin) / CARD_W_MM / s;
+  return { w, h, mag, m: margin / s, ppm };
+}
+
+// mean over a (2r+1) square around each point (cut off at the sides)
+function boxMean(g, w, h, r) {
+  const sum = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += g[y * w + x];
+      sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row;
+    }
+  }
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const t = sum[y1 * (w + 1) + x1] - sum[y0 * (w + 1) + x1] - sum[y1 * (w + 1) + x0] + sum[y0 * (w + 1) + x0];
+      out[y * w + x] = t / ((y1 - y0) * (x1 - x0));
+    }
+  }
+  return out;
+}
+
+// the line map's average in each cellMm square within outerMm of an edge,
+// read dx, dy pixels off
+function borderCells(map, outerMm, cellMm, dx, dy) {
+  const { w, h, mag, m, ppm } = map;
+  const c = Math.max(1, Math.round(cellMm * ppm));
+  const out = [];
+  const x1 = m + CARD_W_MM * ppm, y1 = m + CARD_H_MM * ppm;
+  for (let y0 = Math.floor(m); y0 + c <= y1; y0 += c) {
+    for (let x0 = Math.floor(m); x0 + c <= x1; x0 += c) {
+      const xm = (x0 - m) / ppm + cellMm / 2, ym = (y0 - m) / ppm + cellMm / 2;
+      if (Math.min(xm, CARD_W_MM - xm, ym, CARD_H_MM - ym) > outerMm) continue;
+      let sum = 0, n = 0;
+      for (let y = y0 + dy; y < y0 + dy + c; y++) {
+        if (y < 0 || y >= h) continue;
+        for (let x = x0 + dx; x < x0 + dx + c; x++) {
+          if (x < 0 || x >= w) continue;
+          sum += mag[y * w + x]; n++;
+        }
+      }
+      out.push(n ? sum / n : 0);
+    }
+  }
+  return out;
+}
+
+function pearsonOf(a, b) {
+  const n = Math.min(a.length, b.length);
+  let ma = 0, mb = 0;
+  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+  ma /= n; mb /= n;
+  let ab = 0, aa = 0, bb = 0;
+  for (let i = 0; i < n; i++) {
+    const x = a[i] - ma, y = b[i] - mb;
+    ab += x * y; aa += x * x; bb += y * y;
+  }
+  return aa && bb ? ab / Math.sqrt(aa * bb) : 0;
+}
+
 // ImageData turned half a turn.
 export function turnImage(image) {
   const { width, height, data } = image;
